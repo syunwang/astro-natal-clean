@@ -1,0 +1,14 @@
+{
+  "name": "astro-natal-clean",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Clean starter with Netlify Functions (geo & natal), native fetch, no node-fetch.",
+  "scripts": {
+    "dev": "netlify dev --staticServerPort 4001",
+    "deploy": "netlify deploy --prod"
+  },
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {},
+  "devDependencies": {}
+}

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Astro Natal Test</title>
+</head>
+<body>
+  <h1>Astro Natal API Test</h1>
+  <button onclick="testGeo()">Test Geo</button>
+  <button onclick="testNatal()">Test Natal</button>
+  <pre id="output"></pre>
+  <script>
+    async function testGeo() {
+      const res = await fetch('/.netlify/functions/geo?place=Tainan');
+      document.getElementById('output').textContent = await res.text();
+    }
+    async function testNatal() {
+      const res = await fetch('/.netlify/functions/natal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          year: 1958, month: 1, day: 7,
+          hour: 8, minute: 50,
+          lat: 22.99083, lon: 120.21333, tz: 8, language: "en"
+        })
+      });
+      document.getElementById('output').textContent = await res.text();
+    }
+  </script>
+</body>
+</html>
