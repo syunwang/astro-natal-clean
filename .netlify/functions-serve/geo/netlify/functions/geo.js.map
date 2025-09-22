@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "sources": ["file:///D:/astro-natal-clean/netlify/functions/geo.js"],
+  "sourceRoot": "C:/Users/ADMIN/AppData/Local/Temp/tmp-27080-DimlpQmxMJ1B",
+  "sourcesContent": ["exports.handler = async (event) => {\n  if (event.httpMethod === \"OPTIONS\") {\n    return {\n      statusCode: 200,\n      headers: {\n        \"Access-Control-Allow-Origin\": \"*\",\n        \"Access-Control-Allow-Methods\": \"GET, POST, OPTIONS\",\n        \"Access-Control-Allow-Headers\": \"Content-Type, Authorization\",\n      },\n      body: \"\"\n    };\n  }\n\n  try {\n    const url = process.env.FREEASTRO_GEO_URL;\n    const place = event.queryStringParameters.place || \"Tainan\";\n    const response = await fetch(`${url}?place=${encodeURIComponent(place)}`);\n    const text = await response.text();\n    return {\n      statusCode: 200,\n      headers: { \"Access-Control-Allow-Origin\": \"*\" },\n      body: text\n    };\n  } catch (err) {\n    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };\n  }\n};"],
+  "mappings": ";AAAA,QAAQ,UAAU,OAAO,UAAU;AACjC,MAAI,MAAM,eAAe,WAAW;AAClC,WAAO;AAAA,MACL,YAAY;AAAA,MACZ,SAAS;AAAA,QACP,+BAA+B;AAAA,QAC/B,gCAAgC;AAAA,QAChC,gCAAgC;AAAA,MAClC;AAAA,MACA,MAAM;AAAA,IACR;AAAA,EACF;AAEA,MAAI;AACF,UAAM,MAAM,QAAQ,IAAI;AACxB,UAAM,QAAQ,MAAM,sBAAsB,SAAS;AACnD,UAAM,WAAW,MAAM,MAAM,GAAG,GAAG,UAAU,mBAAmB,KAAK,CAAC,EAAE;AACxE,UAAM,OAAO,MAAM,SAAS,KAAK;AACjC,WAAO;AAAA,MACL,YAAY;AAAA,MACZ,SAAS,EAAE,+BAA+B,IAAI;AAAA,MAC9C,MAAM;AAAA,IACR;AAAA,EACF,SAAS,KAAK;AACZ,WAAO,EAAE,YAAY,KAAK,MAAM,KAAK,UAAU,EAAE,OAAO,IAAI,QAAQ,CAAC,EAAE;AAAA,EACzE;AACF;",
+  "names": []
+}

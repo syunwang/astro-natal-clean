@@ -1,41 +1,48 @@
+// netlify/functions/natal.js
+
 exports.handler = async (event) => {
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-      body: ""
-    };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: "Method Not Allowed" };
-  }
-
   try {
-    const apiUrl = process.env.FREEASTRO_API_URL;
-    const apiKey = process.env.FREEASTRO_API_KEY;
+    if (event.httpMethod !== "POST") {
+      return {
+        statusCode: 405,
+        body: JSON.stringify({ error: "Method Not Allowed" }),
+      };
+    }
 
     const body = JSON.parse(event.body || "{}");
-    const response = await fetch(apiUrl, {
+
+    // FreeAstrologyAPI endpoint (ex: planets)
+    const url = "https://json.freeastrologyapi.com/planets";
+
+    const upstream = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": apiKey ? `Bearer ${apiKey}` : undefined
+        // ★ 用 Netlify 環境變數
+        "x-api-key": process.env.FREEASTRO_API_KEY,
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify({
+        year: body.year,
+        month: body.month,
+        date: body.day,         // API 需要 "date"
+        hours: body.hour,       // API 需要 "hours"
+        minutes: body.minute,   // API 需要 "minutes"
+        seconds: body.seconds ?? 0,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        timezone: body.timezone,
+      }),
     });
 
-    const text = await response.text();
+    const data = await upstream.json();
     return {
-      statusCode: 200,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: text
+      statusCode: upstream.status,
+      body: JSON.stringify(data),
     };
   } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: err.message }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
