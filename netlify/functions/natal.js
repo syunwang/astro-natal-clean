@@ -1,56 +1,67 @@
-// netlify/functions/natal.js
-export default async (req, context) => {
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Only POST is allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+const DEFAULT_API_BASE = process.env.FREEASTRO_API_URL || "https://json.freeastrologyapi.com";
+const ENDPOINT = "/natal";
 
+const json = (statusCode, data) => ({
+  statusCode,
+  headers: {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+  },
+  body: JSON.stringify(data),
+});
+
+exports.handler = async (event) => {
   try {
-    const { FREEASTRO_API_URL, FREEASTRO_API_KEY } = process.env;
-    if (!FREEASTRO_API_URL || !FREEASTRO_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+    if (event.httpMethod === "OPTIONS") return json(204, {});
+    if (event.httpMethod === "GET") return json(200, { ok: true, message: "natal function ready" });
+    if (event.httpMethod !== "POST") return json(405, { message: "Method Not Allowed" });
+
+    let payload = {};
+    try { payload = JSON.parse(event.body || "{}"); } 
+    catch { return json(400, { message: "Invalid JSON body" }); }
+
+    const required = ["year","month","day","hour","minute","latitude","longitude","timezone"];
+    const missing = required.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === "");
+    if (missing.length) return json(400, { message: `Missing required fields: ${missing.join(", ")}` });
+
+    let apiKey = process.env.FREEASTRO_API_KEY || "";
+    const auth = event.headers?.authorization || event.headers?.Authorization;
+    if (auth && auth.toLowerCase().startsWith("bearer ")) {
+      apiKey = auth.split(" ")[1].trim();
     }
+    if (!apiKey) return json(401, { message: "Missing API key." });
 
-    const input = await req.json();
-
-    // Build upstream request – IMPORTANT: no Authorization header!
-    const upstreamRes = await fetch(FREEASTRO_API_URL, {
+    const url = new URL(ENDPOINT, DEFAULT_API_BASE).toString();
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": FREEASTRO_API_KEY, // <-- use only this
+        "Authorization": `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({
+        year: Number(payload.year),
+        month: Number(payload.month),
+        day: Number(payload.day),
+        hour: Number(payload.hour),
+        minute: Number(payload.minute),
+        seconds: Number(payload.seconds ?? 0),
+        latitude: Number(payload.latitude),
+        longitude: Number(payload.longitude),
+        timezone: Number(payload.timezone),
+        language: payload.language || "en",
+      }),
     });
 
-    const text = await upstreamRes.text();
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-    // Try to parse JSON; if not, pass through raw text
-    let payload;
-    try {
-      payload = JSON.parse(text);
-    } catch {
-      payload = { raw: text };
-    }
+    if (!res.ok) return json(res.status, { message: "Upstream API error", data });
 
-    // Return upstream status & payload
-    return new Response(JSON.stringify(payload), {
-      status: upstreamRes.status,
-      headers: {
-        "Content-Type": "application/json",
-        // CORS for browser
-        "Access-Control-Allow-Origin": "*",
-      },
-    });
+    return json(200, { input: payload, output: data });
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Proxy error", detail: String(err) }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
+    return json(500, { message: "Unexpected error", error: String(err?.message || err) });
   }
 };
