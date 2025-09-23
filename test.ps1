@@ -1,43 +1,21 @@
-# test.ps1 — minimal, emoji-free
+# PowerShell quick test for Netlify Functions
+param(
+  [string]$Base = "https://astro-natal-clean.netlify.app",
+  [string]$ApiKey = ""
+)
 
-$ErrorActionPreference = 'Stop'
+Write-Host "Testing NATAL endpoint..."
+$body = @{
+  year=1958; month=1; day=7; hour=8; minute=50; seconds=0;
+  latitude=22.99083; longitude=120.21333; timezone=8; language="en"
+} | ConvertTo-Json
 
-$base = "https://astro-natal-clean.netlify.app/.netlify/functions"
+$headers = @{ "Content-Type"="application/json" }
+if ($ApiKey) { $headers["Authorization"] = "Bearer $ApiKey" }
 
-# 1) 測試 geo (GET)
-$place = "Tainan"
-$geoUrl = "$base/geo?place=$([uri]::EscapeDataString($place))"
+$response = Invoke-WebRequest -Uri "$Base/.netlify/functions/natal" `
+  -Method POST `
+  -Headers $headers `
+  -Body $body
 
-Write-Host "Testing GEO endpoint: $geoUrl"
-$geo = Invoke-WebRequest -Uri $geoUrl -Method GET
-Write-Host "GEO Status Code:" $geo.StatusCode
-try {
-  ($geo.Content | ConvertFrom-Json) | ConvertTo-Json -Depth 10
-} catch {
-  Write-Host "GEO Raw Content:" $geo.Content
-}
-Write-Host ""
-
-# 2) 測試 natal (POST)
-$natalUrl = "$base/natal"
-$payload = @{
-  year      = 1958
-  month     = 1
-  day       = 7
-  hour      = 8
-  minute    = 50
-  latitude  = 22.99083
-  longitude = 120.21333
-  timezone  = 8
-  language  = "en"
-} | ConvertTo-Json -Depth 10
-
-Write-Host "Testing NATAL endpoint: $natalUrl"
-$response = Invoke-WebRequest -Uri $natalUrl -Method POST -ContentType "application/json" -Body $payload
-
-Write-Host "NATAL Status Code:" $response.StatusCode
-try {
-  ($response.Content | ConvertFrom-Json) | ConvertTo-Json -Depth 10
-} catch {
-  Write-Host "NATAL Raw Content:" $response.Content
-}
+Write-Host ($response.Content | Out-String)

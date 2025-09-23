@@ -1,99 +1,106 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Natal Chart API Demo</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Astro Natal – Demo</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 2rem;
-      background: #f9f9f9;
-      color: #333;
-    }
-    h1 {
-      color: #444;
-    }
-    form {
-      margin-bottom: 1.5rem;
-    }
-    label {
-      display: block;
-      margin-top: 0.5rem;
-    }
-    input {
-      padding: 0.3rem;
-      width: 200px;
-    }
-    button {
-      margin-top: 1rem;
-      padding: 0.5rem 1rem;
-      background: #007acc;
-      border: none;
-      color: white;
-      cursor: pointer;
-    }
-    pre {
-      background: #222;
-      color: #0f0;
-      padding: 1rem;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-    }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
+           background:#0b0e14; color:#e6edf3; padding: 24px; }
+    .card { background:#111625; border:1px solid #223; border-radius:12px; padding:20px; max-width: 960px; }
+    label { display:block; margin-top: 10px; font-weight:600; }
+    input, select { width: 100%; max-width: 240px; padding:8px; border-radius:8px; border:1px solid #334;
+                    background:#0f1422; color:#e6edf3; }
+    .grid { display:grid; gap:14px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+    button { background:#1f6feb; border:none; padding:10px 16px; border-radius:10px; color:white; cursor:pointer; margin-top: 12px; }
+    pre { background:#0f1422; border:1px solid #223; border-radius:10px; padding:12px; overflow:auto; }
+    table { width:100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { text-align:left; border-bottom:1px solid #223; padding:8px; }
+    th { background:#0f1422; }
+    .muted { color:#93a1b6; font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>Natal Chart Query</h1>
+  <h1>Astro Natal API 線上測試</h1>
+  <div class="card">
+    <form id="natalForm">
+      <div class="grid">
+        <div><label>年份<input type="number" id="year" value="1958" required /></label></div>
+        <div><label>月份<input type="number" id="month" value="1" required /></label></div>
+        <div><label>日期<input type="number" id="day" value="7" required /></label></div>
+        <div><label>小時<input type="number" id="hour" value="8" required /></label></div>
+        <div><label>分鐘<input type="number" id="minute" value="50" required /></label></div>
+        <div><label>秒數<input type="number" id="seconds" value="0" /></label></div>
+        <div><label>緯度<input type="number" id="latitude" value="22.99083" step="0.00001" required /></label></div>
+        <div><label>經度<input type="number" id="longitude" value="120.21333" step="0.00001" required /></label></div>
+        <div><label>時區<input type="number" id="timezone" value="8" step="0.5" required /></label></div>
+        <div>
+          <label>語言</label>
+          <select id="language"><option value="en" selected>English</option><option value="zh">中文</option></select>
+        </div>
+      </div>
+      <button id="submitBtn" type="submit">產生星盤</button>
+      <span id="status" class="muted"></span>
+    </form>
 
-  <form id="natalForm">
-    <label>Year: <input type="number" id="year" value="1958" required /></label>
-    <label>Month: <input type="number" id="month" value="1" required /></label>
-    <label>Day: <input type="number" id="day" value="7" required /></label>
-    <label>Hour: <input type="number" id="hour" value="8" required /></label>
-    <label>Minute: <input type="number" id="minute" value="50" required /></label>
-    <label>Latitude: <input type="text" id="latitude" value="22.99083" required /></label>
-    <label>Longitude: <input type="text" id="longitude" value="120.21333" required /></label>
-    <label>Timezone: <input type="number" id="timezone" value="8" required /></label>
-    <button type="submit">送出</button>
-  </form>
+    <h3>JSON 結果</h3>
+    <pre id="jsonOutput">(尚未查詢)</pre>
 
-  <h2>Result</h2>
-  <pre id="result">尚未查詢</pre>
+    <h3>整理表格</h3>
+    <table id="tableOutput">
+      <thead><tr><th>名稱</th><th>星座</th><th>度數</th><th>宮位</th><th>逆行</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
 
-  <script>
-    document.getElementById('natalForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
+<script>
+const endpoint = `${location.origin}/.netlify/functions/natal`;
+const signNames = ["白羊 Aries","金牛 Taurus","雙子 Gemini","巨蟹 Cancer","獅子 Leo","處女 Virgo","天秤 Libra","天蠍 Scorpio","射手 Sagittarius","摩羯 Capricorn","水瓶 Aquarius","雙魚 Pisces"];
 
-      const payload = {
-        year: parseInt(document.getElementById('year').value),
-        month: parseInt(document.getElementById('month').value),
-        day: parseInt(document.getElementById('day').value),
-        hour: parseInt(document.getElementById('hour').value),
-        minute: parseInt(document.getElementById('minute').value),
-        latitude: parseFloat(document.getElementById('latitude').value),
-        longitude: parseFloat(document.getElementById('longitude').value),
-        timezone: parseInt(document.getElementById('timezone').value),
-        seconds: 0,
-        language: "en"
-      };
+document.getElementById("natalForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const statusEl = document.getElementById("status");
+  const jsonEl = document.getElementById("jsonOutput");
+  const tbody = document.querySelector("#tableOutput tbody");
+  statusEl.textContent = "查詢中…";
 
-      document.getElementById('result').textContent = "⌛ Sending request...";
+  const body = {
+    year:+year.value, month:+month.value, day:+day.value,
+    hour:+hour.value, minute:+minute.value, seconds:+seconds.value,
+    latitude:+latitude.value, longitude:+longitude.value, timezone:+timezone.value,
+    language: language.value,
+  };
 
-      try {
-        const res = await fetch("/.netlify/functions/natal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-
-        const data = await res.json();
-        document.getElementById('result').textContent =
-          JSON.stringify(data, null, 2);
-      } catch (err) {
-        document.getElementById('result').textContent =
-          "❌ Error: " + err.message;
-      }
+  try {
+    const res = await fetch(endpoint, {
+      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body)
     });
-  </script>
+    const data = await res.json();
+    jsonEl.textContent = JSON.stringify(data, null, 2);
+
+    tbody.innerHTML = "";
+    const arr = Array.isArray(data.output) ? data.output : [];
+    let list = [];
+    if (arr.length > 1 && typeof arr[1]==="object") {
+      for (const [name,obj] of Object.entries(arr[1])) {
+        list.push({ name, ...obj });
+      }
+    }
+    for (const row of list) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${row.name}</td>
+                      <td>${signNames[row.current_sign] ?? row.current_sign}</td>
+                      <td>${(row.normDegree??row.fullDegree).toFixed(2)}°</td>
+                      <td>${row.house_number??""}</td>
+                      <td>${row.isRetro}</td>`;
+      tbody.appendChild(tr);
+    }
+    statusEl.textContent = `完成，HTTP ${res.status}`;
+  } catch(err) {
+    jsonEl.textContent = JSON.stringify({error:String(err)},null,2);
+    statusEl.textContent = "錯誤";
+  }
+});
+</script>
 </body>
 </html>
