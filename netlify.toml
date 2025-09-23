@@ -2,7 +2,6 @@
   directory = "netlify/functions"
   node_bundler = "esbuild"
 
-# Add CORS headers for Functions
 [[headers]]
   for = "/.netlify/functions/*"
   [headers.values]

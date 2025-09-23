@@ -1,20 +1,13 @@
-/**
- * Netlify Function: /natal
- * - Uses native fetch (Node 18+).
- * - Reads API key from Authorization: Bearer <KEY> or env.FREEASTRO_API_KEY.
- * - Calls FreeAstrologyAPI JSON endpoint and returns the response.
- */
 const DEFAULT_API_BASE = process.env.FREEASTRO_API_URL || "https://json.freeastrologyapi.com";
 const ENDPOINT = "/natal";
 
-const json = (statusCode, data, extraHeaders = {}) => ({
+const json = (statusCode, data) => ({
   statusCode,
   headers: {
     "Content-Type": "application/json; charset=utf-8",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    ...extraHeaders,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
   },
   body: JSON.stringify(data),
 });
@@ -26,7 +19,7 @@ exports.handler = async (event) => {
     if (event.httpMethod !== "POST") return json(405, { message: "Method Not Allowed" });
 
     let payload = {};
-    try { payload = JSON.parse(event.body || "{}"); }
+    try { payload = JSON.parse(event.body || "{}"); } 
     catch { return json(400, { message: "Invalid JSON body" }); }
 
     const required = ["year","month","day","hour","minute","latitude","longitude","timezone"];
@@ -38,7 +31,7 @@ exports.handler = async (event) => {
     if (auth && auth.toLowerCase().startsWith("bearer ")) {
       apiKey = auth.split(" ")[1].trim();
     }
-    if (!apiKey) return json(401, { message: "Missing API key. Provide Authorization or set FREEASTRO_API_KEY." });
+    if (!apiKey) return json(401, { message: "Missing API key." });
 
     const url = new URL(ENDPOINT, DEFAULT_API_BASE).toString();
     const res = await fetch(url, {
@@ -65,9 +58,9 @@ exports.handler = async (event) => {
     let data;
     try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-    if (!res.ok) return json(res.status, { message: "Upstream API error", statusCode: res.status, data });
+    if (!res.ok) return json(res.status, { message: "Upstream API error", data });
 
-    return json(200, { statusCode: 200, input: payload, output: data });
+    return json(200, { input: payload, output: data });
   } catch (err) {
     return json(500, { message: "Unexpected error", error: String(err?.message || err) });
   }

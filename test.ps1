@@ -1,4 +1,3 @@
-# PowerShell quick test for Netlify Functions
 param(
   [string]$Base = "https://astro-natal-clean.netlify.app",
   [string]$ApiKey = ""

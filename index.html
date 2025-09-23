@@ -1,106 +1,214 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Astro Natal – Demo</title>
+  <title>Astro Natal API Test</title>
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", sans-serif;
-           background:#0b0e14; color:#e6edf3; padding: 24px; }
-    .card { background:#111625; border:1px solid #223; border-radius:12px; padding:20px; max-width: 960px; }
-    label { display:block; margin-top: 10px; font-weight:600; }
-    input, select { width: 100%; max-width: 240px; padding:8px; border-radius:8px; border:1px solid #334;
-                    background:#0f1422; color:#e6edf3; }
-    .grid { display:grid; gap:14px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
-    button { background:#1f6feb; border:none; padding:10px 16px; border-radius:10px; color:white; cursor:pointer; margin-top: 12px; }
-    pre { background:#0f1422; border:1px solid #223; border-radius:10px; padding:12px; overflow:auto; }
-    table { width:100%; border-collapse: collapse; margin-top: 12px; }
-    th, td { text-align:left; border-bottom:1px solid #223; padding:8px; }
-    th { background:#0f1422; }
-    .muted { color:#93a1b6; font-size: 12px; }
+    :root {
+      --bg: #0f1216;
+      --fg: #e7eef7;
+      --muted: #9fb0c0;
+      --panel: #171b21;
+      --accent: #4aa8ff;
+      --border: #263041;
+    }
+    html, body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      margin: 0;
+      padding: 0;
+    }
+    .wrap { max-width: 1100px; margin: 32px auto 64px; padding: 0 20px; }
+    h1 { font-size: 28px; margin: 0 0 16px; }
+    p.muted { color: var(--muted); margin-top: 0; }
+
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin: 16px 0 24px; }
+
+    .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px 16px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    input, select, button {
+      width: 100%; box-sizing: border-box;
+      background: #0d1117; color: var(--fg);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #4aa8ff22; }
+    .row-2 { grid-column: span 2 / span 2; }
+    .row-3 { grid-column: span 3 / span 3; }
+    .row-6 { grid-column: 1 / -1; }
+
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      background: linear-gradient(180deg, #1f6feb, #1b62d1); border: 1px solid #1b61d18a;
+      padding: 12px 16px; border-radius: 10px; color: #fff; cursor: pointer;
+      transition: transform .05s ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn.secondary { background: #263041; border: 1px solid #2e3b4f; }
+
+    .status { font-size: 13px; color: var(--muted); margin-left: 8px; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; font-size: 14px; }
+    th { background: #121720; color: #cfe6ff; font-weight: 600; }
+    tr:last-child td { border-bottom: 0; }
+
+    pre { background: #0d1117; border: 1px solid var(--border); border-radius: 10px; padding: 16px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
   </style>
 </head>
 <body>
-  <h1>Astro Natal API 線上測試</h1>
-  <div class="card">
-    <form id="natalForm">
+  <div class="wrap">
+    <h1>Astro Natal API</h1>
+    <p class="muted">輸入生日與地名資料，點「查詢地名」取得經緯度，再點「產生星盤」。</p>
+
+    <!-- 輸入區 -->
+    <div class="card">
       <div class="grid">
-        <div><label>年份<input type="number" id="year" value="1958" required /></label></div>
-        <div><label>月份<input type="number" id="month" value="1" required /></label></div>
-        <div><label>日期<input type="number" id="day" value="7" required /></label></div>
-        <div><label>小時<input type="number" id="hour" value="8" required /></label></div>
-        <div><label>分鐘<input type="number" id="minute" value="50" required /></label></div>
-        <div><label>秒數<input type="number" id="seconds" value="0" /></label></div>
-        <div><label>緯度<input type="number" id="latitude" value="22.99083" step="0.00001" required /></label></div>
-        <div><label>經度<input type="number" id="longitude" value="120.21333" step="0.00001" required /></label></div>
-        <div><label>時區<input type="number" id="timezone" value="8" step="0.5" required /></label></div>
-        <div>
-          <label>語言</label>
-          <select id="language"><option value="en" selected>English</option><option value="zh">中文</option></select>
+        <div class="row-2"><label>出生日期</label><input id="date" type="date" value="1958-01-07" /></div>
+        <div class="row-2"><label>出生時間</label><input id="time" type="time" step="60" value="08:50" /></div>
+        <div class="row-2"><label>時區</label><input id="timezone" type="number" step="0.25" value="8" /></div>
+
+        <div class="row-3"><label>語言</label>
+          <select id="language"><option value="en">English</option><option value="zh" selected>中文</option></select>
+        </div>
+        <div class="row-3">
+          <label>地名（自動轉經緯度）</label>
+          <div style="display:flex; gap:8px;">
+            <input id="place" type="text" placeholder="Tainan, Taiwan" />
+            <button id="geoBtn" class="btn secondary" style="width:auto;">查詢地名 → 經緯度</button>
+          </div>
+          <div id="geoStatus" class="status"></div>
+        </div>
+
+        <div class="row-3"><label>緯度 Latitude</label><input id="latitude" type="number" step="0.00001" /></div>
+        <div class="row-3"><label>經度 Longitude</label><input id="longitude" type="number" step="0.00001" /></div>
+
+        <div class="row-6" style="display:flex; gap:12px; align-items:center; margin-top:8px;">
+          <button id="runBtn" class="btn">產生星盤</button>
+          <div id="runStatus" class="status"></div>
         </div>
       </div>
-      <button id="submitBtn" type="submit">產生星盤</button>
-      <span id="status" class="muted"></span>
-    </form>
+    </div>
 
-    <h3>JSON 結果</h3>
-    <pre id="jsonOutput">(尚未查詢)</pre>
+    <!-- 格式化表格 -->
+    <div class="card" id="tableCard" style="display:none;">
+      <h3 style="margin-top:0;">格式化結果</h3>
+      <table id="resultTable">
+        <thead><tr><th>星體</th><th>度數</th><th>星座</th><th>宮位</th><th>逆行</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
 
-    <h3>整理表格</h3>
-    <table id="tableOutput">
-      <thead><tr><th>名稱</th><th>星座</th><th>度數</th><th>宮位</th><th>逆行</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <!-- 原始 JSON -->
+    <div class="card"><h3 style="margin-top:0;">原始 JSON（除錯用）</h3><pre id="resultJson">{}</pre></div>
   </div>
 
-<script>
-const endpoint = `${location.origin}/.netlify/functions/natal`;
-const signNames = ["白羊 Aries","金牛 Taurus","雙子 Gemini","巨蟹 Cancer","獅子 Leo","處女 Virgo","天秤 Libra","天蠍 Scorpio","射手 Sagittarius","摩羯 Capricorn","水瓶 Aquarius","雙魚 Pisces"];
+  <script>
+    // --- Base URL 修復 ---
+    // https://astro-natal-clean.netlify.app
+    const NETLIFY_SITE = "https://astro-natal-clean.netlify.app"; // 改成你的實際域名
+    const BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      ? "http://localhost:8888"
+      : (location.origin.startsWith("http") ? location.origin : NETLIFY_SITE);
 
-document.getElementById("natalForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const statusEl = document.getElementById("status");
-  const jsonEl = document.getElementById("jsonOutput");
-  const tbody = document.querySelector("#tableOutput tbody");
-  statusEl.textContent = "查詢中…";
+    // --- DOM ---
+    const dateEl = document.getElementById('date');
+    const timeEl = document.getElementById('time');
+    const tzEl = document.getElementById('timezone');
+    const langEl = document.getElementById('language');
+    const placeEl = document.getElementById('place');
+    const latEl = document.getElementById('latitude');
+    const lonEl = document.getElementById('longitude');
+    const runBtn = document.getElementById('runBtn');
+    const runStatus = document.getElementById('runStatus');
+    const geoBtn = document.getElementById('geoBtn');
+    const geoStatus = document.getElementById('geoStatus');
+    const resultJson = document.getElementById('resultJson');
+    const tableCard = document.getElementById('tableCard');
+    const tableBody = document.querySelector('#resultTable tbody');
 
-  const body = {
-    year:+year.value, month:+month.value, day:+day.value,
-    hour:+hour.value, minute:+minute.value, seconds:+seconds.value,
-    latitude:+latitude.value, longitude:+longitude.value, timezone:+timezone.value,
-    language: language.value,
-  };
+    const SIGN_ZH = ["牡羊","金牛","雙子","巨蟹","獅子","處女","天秤","天蠍","射手","摩羯","水瓶","雙魚"];
+    const SIGN_EN = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"];
+    function signName(idx) {
+      const names = langEl.value === 'en' ? SIGN_EN : SIGN_ZH;
+      return names[idx % 12] ?? idx;
+    }
 
-  try {
-    const res = await fetch(endpoint, {
-      method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body)
+    async function callGeo(place) {
+      const url = `${BASE}/.netlify/functions/geo?place=${encodeURIComponent(place)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`GEO HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function callNatal(payload) {
+      const url = `${BASE}/.netlify/functions/natal`;
+      const res = await fetch(url, {
+        method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(`NATAL HTTP ${res.status}`);
+      return res.json();
+    }
+
+    // 查詢地名
+    geoBtn.addEventListener('click', async () => {
+      const place = placeEl.value.trim();
+      if (!place) { geoStatus.textContent = "請輸入地名"; return; }
+      geoStatus.textContent = "查詢中…";
+      try {
+        const data = await callGeo(place);
+        latEl.value = Number(data.lat).toFixed(5);
+        lonEl.value = Number(data.lon).toFixed(5);
+        geoStatus.textContent = `OK：${data.display_name}`;
+      } catch (e) { geoStatus.textContent = "查詢失敗：" + e.message; }
     });
-    const data = await res.json();
-    jsonEl.textContent = JSON.stringify(data, null, 2);
 
-    tbody.innerHTML = "";
-    const arr = Array.isArray(data.output) ? data.output : [];
-    let list = [];
-    if (arr.length > 1 && typeof arr[1]==="object") {
-      for (const [name,obj] of Object.entries(arr[1])) {
-        list.push({ name, ...obj });
+    // 產生星盤
+    runBtn.addEventListener('click', async () => {
+      runStatus.textContent = "計算中…"; tableCard.style.display="none"; tableBody.innerHTML="";
+      const [y,m,d] = dateEl.value.split("-").map(Number);
+      const [hh,mm] = timeEl.value.split(":").map(Number);
+      let lat = Number(latEl.value), lon = Number(lonEl.value);
+
+      if (isNaN(lat) || isNaN(lon)) {
+        if (!placeEl.value.trim()) { runStatus.textContent="錯誤：請輸入地名或經緯度"; return; }
+        const g = await callGeo(placeEl.value.trim());
+        lat = Number(g.lat); lon = Number(g.lon);
+        latEl.value = lat.toFixed(5); lonEl.value = lon.toFixed(5);
       }
+
+      const payload = { year:y, month:m, day:d, hour:hh, minute:mm, latitude:lat, longitude:lon, timezone:Number(tzEl.value), language:langEl.value };
+      try {
+        const data = await callNatal(payload);
+        resultJson.textContent = JSON.stringify(data, null, 2);
+        renderTable(data);
+        runStatus.textContent = "完成";
+      } catch (e) {
+        resultJson.textContent = JSON.stringify({error:String(e)},null,2);
+        runStatus.textContent = "錯誤";
+      }
+    });
+
+    function renderTable(resp) {
+      let rows = [];
+      if (Array.isArray(resp?.output)) {
+        const obj = resp.output.find(x => x && typeof x === "object" && !x["0"]);
+        if (obj) for (const [k,v] of Object.entries(obj)) rows.push({name:k,...v});
+      }
+      if (!rows.length && resp?.output?.[0]) {
+        for (const [k,v] of Object.entries(resp.output[0])) rows.push({name:v.name??k,...v});
+      }
+      if (!rows.length) return;
+      rows.sort((a,b)=>(a.normDegree??a.fullDegree)-(b.normDegree??b.fullDegree));
+      tableBody.innerHTML = rows.map(r => `<tr>
+        <td>${r.name}</td>
+        <td>${(r.normDegree??r.fullDegree).toFixed(2)}°</td>
+        <td>${signName(r.current_sign)}</td>
+        <td>${r.house_number??""}</td>
+        <td>${r.isRetro?"是":"否"}</td>
+      </tr>`).join("");
+      tableCard.style.display="";
     }
-    for (const row of list) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${row.name}</td>
-                      <td>${signNames[row.current_sign] ?? row.current_sign}</td>
-                      <td>${(row.normDegree??row.fullDegree).toFixed(2)}°</td>
-                      <td>${row.house_number??""}</td>
-                      <td>${row.isRetro}</td>`;
-      tbody.appendChild(tr);
-    }
-    statusEl.textContent = `完成，HTTP ${res.status}`;
-  } catch(err) {
-    jsonEl.textContent = JSON.stringify({error:String(err)},null,2);
-    statusEl.textContent = "錯誤";
-  }
-});
-</script>
+  </script>
 </body>
 </html>
