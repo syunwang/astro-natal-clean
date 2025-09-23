@@ -1,31 +1,99 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Astro Natal Test</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Natal Chart API Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 2rem;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      color: #444;
+    }
+    form {
+      margin-bottom: 1.5rem;
+    }
+    label {
+      display: block;
+      margin-top: 0.5rem;
+    }
+    input {
+      padding: 0.3rem;
+      width: 200px;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      background: #007acc;
+      border: none;
+      color: white;
+      cursor: pointer;
+    }
+    pre {
+      background: #222;
+      color: #0f0;
+      padding: 1rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+  </style>
 </head>
 <body>
-  <h1>Astro Natal API Test</h1>
-  <button onclick="testGeo()">Test Geo</button>
-  <button onclick="testNatal()">Test Natal</button>
-  <pre id="output"></pre>
+  <h1>Natal Chart Query</h1>
+
+  <form id="natalForm">
+    <label>Year: <input type="number" id="year" value="1958" required /></label>
+    <label>Month: <input type="number" id="month" value="1" required /></label>
+    <label>Day: <input type="number" id="day" value="7" required /></label>
+    <label>Hour: <input type="number" id="hour" value="8" required /></label>
+    <label>Minute: <input type="number" id="minute" value="50" required /></label>
+    <label>Latitude: <input type="text" id="latitude" value="22.99083" required /></label>
+    <label>Longitude: <input type="text" id="longitude" value="120.21333" required /></label>
+    <label>Timezone: <input type="number" id="timezone" value="8" required /></label>
+    <button type="submit">送出</button>
+  </form>
+
+  <h2>Result</h2>
+  <pre id="result">尚未查詢</pre>
+
   <script>
-    async function testGeo() {
-      const res = await fetch('/.netlify/functions/geo?place=Tainan');
-      document.getElementById('output').textContent = await res.text();
-    }
-    async function testNatal() {
-      const res = await fetch('/.netlify/functions/natal', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          year: 1958, month: 1, day: 7,
-          hour: 8, minute: 50,
-          lat: 22.99083, lon: 120.21333, tz: 8, language: "en"
-        })
-      });
-      document.getElementById('output').textContent = await res.text();
-    }
+    document.getElementById('natalForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+
+      const payload = {
+        year: parseInt(document.getElementById('year').value),
+        month: parseInt(document.getElementById('month').value),
+        day: parseInt(document.getElementById('day').value),
+        hour: parseInt(document.getElementById('hour').value),
+        minute: parseInt(document.getElementById('minute').value),
+        latitude: parseFloat(document.getElementById('latitude').value),
+        longitude: parseFloat(document.getElementById('longitude').value),
+        timezone: parseInt(document.getElementById('timezone').value),
+        seconds: 0,
+        language: "en"
+      };
+
+      document.getElementById('result').textContent = "⌛ Sending request...";
+
+      try {
+        const res = await fetch("/.netlify/functions/natal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        document.getElementById('result').textContent =
+          JSON.stringify(data, null, 2);
+      } catch (err) {
+        document.getElementById('result').textContent =
+          "❌ Error: " + err.message;
+      }
+    });
   </script>
 </body>
 </html>
