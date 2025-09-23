@@ -1,67 +1,83 @@
-const DEFAULT_API_BASE = process.env.FREEASTRO_API_URL || "https://json.freeastrologyapi.com";
-const ENDPOINT = "/natal";
+// netlify/functions/natal.js
+export default async (req, context) => {
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Only POST is allowed" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
-const json = (statusCode, data) => ({
-  statusCode,
-  headers: {
-    "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
-  },
-  body: JSON.stringify(data),
-});
-
-exports.handler = async (event) => {
   try {
-    if (event.httpMethod === "OPTIONS") return json(204, {});
-    if (event.httpMethod === "GET") return json(200, { ok: true, message: "natal function ready" });
-    if (event.httpMethod !== "POST") return json(405, { message: "Method Not Allowed" });
+    const {
+      FREEASTRO_API_URL,       // e.g. https://json.freeastrologyapi.com/v1/natal  (CHECK DOCS!)
+      FREEASTRO_API_KEY,       // your key
+      FREEASTRO_AUTH_STYLE,    // one of: x-api-key | bearer | query
+    } = process.env;
 
-    let payload = {};
-    try { payload = JSON.parse(event.body || "{}"); } 
-    catch { return json(400, { message: "Invalid JSON body" }); }
-
-    const required = ["year","month","day","hour","minute","latitude","longitude","timezone"];
-    const missing = required.filter(k => payload[k] === undefined || payload[k] === null || payload[k] === "");
-    if (missing.length) return json(400, { message: `Missing required fields: ${missing.join(", ")}` });
-
-    let apiKey = process.env.FREEASTRO_API_KEY || "";
-    const auth = event.headers?.authorization || event.headers?.Authorization;
-    if (auth && auth.toLowerCase().startsWith("bearer ")) {
-      apiKey = auth.split(" ")[1].trim();
+    if (!FREEASTRO_API_URL || !FREEASTRO_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
-    if (!apiKey) return json(401, { message: "Missing API key." });
 
-    const url = new URL(ENDPOINT, DEFAULT_API_BASE).toString();
-    const res = await fetch(url, {
+    const input = await req.json();
+
+    // Build request according to auth style
+    const headers = { "Content-Type": "application/json" };
+    let url = FREEASTRO_API_URL;
+
+    switch ((FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase()) {
+      case "bearer":
+        headers.Authorization = `Bearer ${FREEASTRO_API_KEY}`;
+        break;
+      case "query": {
+        // attach ?api_key=... (change the param name if docs say otherwise)
+        const u = new URL(url);
+        u.searchParams.set("api_key", FREEASTRO_API_KEY);
+        url = u.toString();
+        break;
+      }
+      case "x-api-key":
+      default:
+        headers["x-api-key"] = FREEASTRO_API_KEY;
+    }
+
+    // NOTE: If the API wants GET, change method accordingly (per docs)
+    const upstreamRes = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        year: Number(payload.year),
-        month: Number(payload.month),
-        day: Number(payload.day),
-        hour: Number(payload.hour),
-        minute: Number(payload.minute),
-        seconds: Number(payload.seconds ?? 0),
-        latitude: Number(payload.latitude),
-        longitude: Number(payload.longitude),
-        timezone: Number(payload.timezone),
-        language: payload.language || "en",
-      }),
+      headers,
+      body: JSON.stringify(input),
     });
 
-    const text = await res.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    const raw = await upstreamRes.text();
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { raw };
+    }
 
-    if (!res.ok) return json(res.status, { message: "Upstream API error", data });
-
-    return json(200, { input: payload, output: data });
+    // Return upstream status, plus a tiny bit of debug (no secrets)
+    return new Response(
+      JSON.stringify({
+        upstreamStatus: upstreamRes.status,
+        upstreamUrlUsed: url,
+        authStyle: (FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase(),
+        data: payload,
+      }),
+      {
+        status: upstreamRes.status,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        },
+      }
+    );
   } catch (err) {
-    return json(500, { message: "Unexpected error", error: String(err?.message || err) });
+    return new Response(
+      JSON.stringify({ error: "Proxy error", detail: String(err) }),
+      { status: 502, headers: { "Content-Type": "application/json" } }
+    );
   }
 };
