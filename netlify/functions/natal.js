@@ -1,85 +1,56 @@
 // netlify/functions/natal.js
-const fetch = global.fetch; // Node 18+ on Netlify has native fetch
-
-const ALLOWED_ORIGIN = "*"; // loosen CORS for now while debugging
-
-exports.handler = async (event) => {
-  // CORS preflight
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: {
-        "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, x-api-key, Authorization",
-        "Access-Control-Max-Age": "86400",
-      },
-      body: "",
-    };
-  }
-
-  if (event.httpMethod !== "POST") {
-    return json(405, { error: "Only POST is allowed" });
-  }
-
-  // ---- env ----
-  const API_URL = process.env.FREEASTRO_API_URL; // e.g. https://json.freeastrologyapi.com/natal
-  const API_KEY = process.env.FREEASTRO_API_KEY;
-
-  if (!API_URL) return json(500, { error: "SERVER_MISCONFIG: FREEASTRO_API_URL missing" });
-  if (!API_KEY) return json(500, { error: "SERVER_MISCONFIG: FREEASTRO_API_KEY missing" });
-
-  // ---- body ----
-  let input;
-  try {
-    input = JSON.parse(event.body || "{}");
-  } catch (e) {
-    return json(400, { error: "Invalid JSON body" });
+export default async (req, context) => {
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Only POST is allowed" }), {
+      status: 405,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   try {
-    const upstream = await fetch(API_URL, {
+    const { FREEASTRO_API_URL, FREEASTRO_API_KEY } = process.env;
+    if (!FREEASTRO_API_URL || !FREEASTRO_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
+    const input = await req.json();
+
+    // Build upstream request – IMPORTANT: no Authorization header!
+    const upstreamRes = await fetch(FREEASTRO_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Accept": "application/json",
-        // Many APIs accept one of these two. We send both.
-        "x-api-key": API_KEY,
-        "Authorization": `Bearer ${API_KEY}`,
+        "x-api-key": FREEASTRO_API_KEY, // <-- use only this
       },
       body: JSON.stringify(input),
     });
 
-    const text = await upstream.text();
-    const isJson = (upstream.headers.get("content-type") || "").includes("application/json");
-    const payload = isJson ? safeJSON(text) : { raw: text };
+    const text = await upstreamRes.text();
 
-    if (!upstream.ok) {
-      return json(upstream.status, {
-        error: `Upstream ${upstream.status}`,
-        upstreamBody: payload,
-      });
+    // Try to parse JSON; if not, pass through raw text
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = { raw: text };
     }
 
-    return json(200, {
-      statusCode: upstream.status,
-      input,
-      output: payload, // keep raw API result so UI can format it
+    // Return upstream status & payload
+    return new Response(JSON.stringify(payload), {
+      status: upstreamRes.status,
+      headers: {
+        "Content-Type": "application/json",
+        // CORS for browser
+        "Access-Control-Allow-Origin": "*",
+      },
     });
   } catch (err) {
-    return json(500, { error: "NETWORK_ERROR", message: String(err && err.message ? err.message : err) });
+    return new Response(
+      JSON.stringify({ error: "Proxy error", detail: String(err) }),
+      { status: 502, headers: { "Content-Type": "application/json" } }
+    );
   }
 };
-
-// helpers
-function safeJSON(t) { try { return JSON.parse(t); } catch { return { raw: t }; } }
-function json(statusCode, bodyObj) {
-  return {
-    statusCode,
-    headers: {
-      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(bodyObj),
-  };
-}
