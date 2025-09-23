@@ -1,96 +1,85 @@
 // netlify/functions/natal.js
+const fetch = global.fetch; // Node 18+ on Netlify has native fetch
+
+const ALLOWED_ORIGIN = "*"; // loosen CORS for now while debugging
+
 exports.handler = async (event) => {
-  if (event.httpMethod !== "POST") {
+  // CORS preflight
+  if (event.httpMethod === "OPTIONS") {
     return {
-      statusCode: 405,
+      statusCode: 204,
       headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, x-api-key, Authorization",
+        "Access-Control-Max-Age": "86400",
       },
-      body: JSON.stringify({ error: "Only POST is allowed" }),
+      body: "",
     };
   }
 
-  const API_URL = process.env.FREEASTRO_API_URL;   // e.g. https://json.freeastrologyapi.com/natal
+  if (event.httpMethod !== "POST") {
+    return json(405, { error: "Only POST is allowed" });
+  }
+
+  // ---- env ----
+  const API_URL = process.env.FREEASTRO_API_URL; // e.g. https://json.freeastrologyapi.com/natal
   const API_KEY = process.env.FREEASTRO_API_KEY;
 
+  if (!API_URL) return json(500, { error: "SERVER_MISCONFIG: FREEASTRO_API_URL missing" });
+  if (!API_KEY) return json(500, { error: "SERVER_MISCONFIG: FREEASTRO_API_KEY missing" });
+
+  // ---- body ----
   let input;
   try {
     input = JSON.parse(event.body || "{}");
   } catch (e) {
-    return {
-      statusCode: 400,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Bad JSON in request body" }),
-    };
+    return json(400, { error: "Invalid JSON body" });
   }
-
-  // 构造上游 payload（你已有字段就照抄）
-  const payload = {
-    year: input.year,
-    month: input.month,
-    date: input.day,
-    hours: input.hour,
-    minutes: input.minute,
-    seconds: 0,
-    latitude: input.latitude,
-    longitude: input.longitude,
-    timezone: input.timezone,
-    language: input.language || "en",
-  };
 
   try {
     const upstream = await fetch(API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // 关键：FreeAstrologyAPI 文档偏向使用 x-api-key
-        "x-api-key": API_KEY,
         "Accept": "application/json",
+        // Many APIs accept one of these two. We send both.
+        "x-api-key": API_KEY,
+        "Authorization": `Bearer ${API_KEY}`,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(input),
     });
 
     const text = await upstream.text();
-
-    // 详细日志（在 Netlify Deploy log -> Functions 里看）
-    console.log("NATAL upstream status:", upstream.status);
-    console.log("NATAL upstream body:", text);
+    const isJson = (upstream.headers.get("content-type") || "").includes("application/json");
+    const payload = isJson ? safeJSON(text) : { raw: text };
 
     if (!upstream.ok) {
-      // 把上游的错误原样返回，方便你在前端看见真正原因（403/500）
-      return {
-        statusCode: upstream.status,
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          error: `Upstream ${upstream.status}`,
-          upstreamBody: safeJson(text),
-        }),
-      };
+      return json(upstream.status, {
+        error: `Upstream ${upstream.status}`,
+        upstreamBody: payload,
+      });
     }
 
-    return {
-      statusCode: 200,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      },
-      body: text, // 成功时直接透传 API 的 JSON
-    };
+    return json(200, {
+      statusCode: upstream.status,
+      input,
+      output: payload, // keep raw API result so UI can format it
+    });
   } catch (err) {
-    console.error("NATAL fetch failed:", err);
-    return {
-      statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Function crashed", message: String(err) }),
-    };
+    return json(500, { error: "NETWORK_ERROR", message: String(err && err.message ? err.message : err) });
   }
 };
 
-// 确保 parse 失败也能返回可读字符串
-function safeJson(s) {
-  try { return JSON.parse(s); } catch { return s; }
+// helpers
+function safeJSON(t) { try { return JSON.parse(t); } catch { return { raw: t }; } }
+function json(statusCode, bodyObj) {
+  return {
+    statusCode,
+    headers: {
+      "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(bodyObj),
+  };
 }
