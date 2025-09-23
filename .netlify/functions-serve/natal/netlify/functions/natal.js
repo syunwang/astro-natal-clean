@@ -32,43 +32,26 @@ async function handler(event) {
     if (!cfgUrl || !cfgKey) {
       return {
         statusCode: 500,
-        body: JSON.stringify({
-          error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY in environment"
-        })
+        body: JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" })
       };
     }
     const input = JSON.parse(event.body || "{}");
-    const {
-      year,
-      month,
-      day,
-      hour,
-      minute,
-      seconds = 0,
-      latitude,
-      longitude,
-      timezone,
-      language = "en"
-    } = input;
     const payload = {
-      year,
-      month,
-      day,
-      hours: hour,
-      minutes: minute,
-      seconds,
-      latitude,
-      longitude,
-      timezone,
-      language
+      year: input.year,
+      month: input.month,
+      day: input.day,
+      hours: input.hour,
+      minutes: input.minute,
+      seconds: input.seconds || 0,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      timezone: input.timezone,
+      language: input.language || "en"
     };
-    const headers = { "Content-Type": "application/json" };
-    if (/^Bearer\s+/i.test(cfgKey)) {
-      headers.Authorization = cfgKey;
-    } else {
-      headers.Authorization = `Bearer ${cfgKey}`;
-      headers["x-api-key"] = cfgKey;
-    }
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${cfgKey}`
+    };
     const upstream = await fetch(cfgUrl, {
       method: "POST",
       headers,
@@ -76,16 +59,11 @@ async function handler(event) {
     });
     const raw = await upstream.text();
     if (!upstream.ok) {
-      console.error("NATAL upstream error", upstream.status, raw);
       return {
         statusCode: upstream.status,
         body: JSON.stringify({
           error: `NATAL HTTP ${upstream.status}`,
-          providerStatus: upstream.status,
-          providerBody: raw,
-          // 这里会告诉你为什么 403（如 key 无效/未授权域名等）
-          sentToProvider: payload
-          // 方便核对参数
+          providerBody: raw
         })
       };
     }
@@ -95,7 +73,6 @@ async function handler(event) {
       body: raw
     };
   } catch (err) {
-    console.error("NATAL function fatal error", err);
     return { statusCode: 500, body: JSON.stringify({ error: String(err) }) };
   }
 }
