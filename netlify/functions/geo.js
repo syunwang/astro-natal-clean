@@ -1,67 +1,33 @@
 // netlify/functions/geo.js
-export async function handler(event) {
-  // --- CORS Preflight ---
-  if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-      },
-      body: "",
-    };
-  }
-
-  if (event.httpMethod !== "GET") {
-    return {
-      statusCode: 405,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Method Not Allowed" }),
-    };
-  }
-
-  const { FREEASTRO_GEO_URL } = process.env;
-  const place = event.queryStringParameters.place;
-
-  if (!FREEASTRO_GEO_URL) {
-    return {
-      statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Missing FREEASTRO_GEO_URL" }),
-    };
-  }
+export default async (req) => {
+  const url = new URL(req.url);
+  const place = url.searchParams.get("place");
   if (!place) {
-    return {
-      statusCode: 400,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Missing ?place= parameter" }),
-    };
+    return new Response(JSON.stringify({ error: "missing place" }), {
+      status: 400,
+      headers: { "Access-Control-Allow-Origin": "*" }
+    });
   }
-
+  const upstream = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(place)}`;
   try {
-    const url = `${FREEASTRO_GEO_URL}/search?q=${encodeURIComponent(place)}&format=json&limit=1`;
-    const res = await fetch(url);
-    const data = await res.json();
-
-    if (!data.length) {
-      return {
-        statusCode: 404,
-        headers: { "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "No results found" }),
-      };
+    const r = await fetch(upstream, {
+      headers: {
+        "User-Agent": "astro-natal-clean/1.0 (contact: youremail@example.com)"
+      }
+    });
+    const j = await r.json();
+    if (!Array.isArray(j) || !j.length) {
+      return new Response(JSON.stringify({ error: "not found" }), {
+        status: 404, headers: { "Access-Control-Allow-Origin": "*" }
+      });
     }
-
-    return {
-      statusCode: 200,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify(data[0]),
-    };
-  } catch (err) {
-    return {
-      statusCode: 502,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: "Geo lookup failed", detail: String(err) }),
-    };
+    const hit = j[0];
+    return new Response(JSON.stringify({
+      lat: hit.lat, lon: hit.lon, display_name: hit.display_name
+    }), { status: 200, headers: { "Access-Control-Allow-Origin": "*" } });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: "GEO upstream failed" }), {
+      status: 502, headers: { "Access-Control-Allow-Origin": "*" }
+    });
   }
-}
+};
