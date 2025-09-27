@@ -1,28 +1,15 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
 [functions]
-  directory = "netlify/functions"
   node_bundler = "esbuild"
+  included_files = ["netlify/functions/**"]
 
-[[headers]]
-  for = "/.netlify/functions/*"
-  [headers.values]
-    Access-Control-Allow-Origin = "*"
-    Access-Control-Allow-Headers = "Content-Type, Authorization"
-    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
-
-
-# Disable all Netlify post-processing
 [build.processing]
   skip_processing = true
 
-# (Granular switches if you prefer not to skip all)
-#[build.processing.css]
-#  bundle = false
-#  minify = false
-#[build.processing.js]
-#  bundle = false
-#  minify = false
-#[build.processing.images]
-#  compress = false
-#[build.processing.html]
-#  pretty_urls = false
-
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"

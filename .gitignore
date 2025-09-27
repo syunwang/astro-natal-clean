@@ -1,19 +1,15 @@
-# Node/Netlify
-node_modules/
-.netlify/
-dist/
-.cache/
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
 
-# OS
+# testing
+/coverage
+
+# production
+/build
+/dist
+
+# misc
 .DS_Store
-Thumbs.db
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Env
 .env
-.env.*
