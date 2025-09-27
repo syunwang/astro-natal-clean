@@ -1,83 +1,48 @@
 // netlify/functions/natal.js
-export default async (req, context) => {
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Only POST is allowed" }), {
-      status: 405,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
 
+exports.handler = async (event) => {
   try {
-    const {
-      FREEASTRO_API_URL,       // e.g. https://json.freeastrologyapi.com/v1/natal  (CHECK DOCS!)
-      FREEASTRO_API_KEY,       // your key
-      FREEASTRO_AUTH_STYLE,    // one of: x-api-key | bearer | query
-    } = process.env;
-
-    if (!FREEASTRO_API_URL || !FREEASTRO_API_KEY) {
-      return new Response(
-        JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+    if (event.httpMethod !== "POST") {
+      return {
+        statusCode: 405,
+        body: JSON.stringify({ error: "Method Not Allowed" }),
+      };
     }
 
-    const input = await req.json();
+    const body = JSON.parse(event.body || "{}");
 
-    // Build request according to auth style
-    const headers = { "Content-Type": "application/json" };
-    let url = FREEASTRO_API_URL;
+    // FreeAstrologyAPI endpoint (ex: planets)
+    const url = "https://json.freeastrologyapi.com/planets";
 
-    switch ((FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase()) {
-      case "bearer":
-        headers.Authorization = `Bearer ${FREEASTRO_API_KEY}`;
-        break;
-      case "query": {
-        // attach ?api_key=... (change the param name if docs say otherwise)
-        const u = new URL(url);
-        u.searchParams.set("api_key", FREEASTRO_API_KEY);
-        url = u.toString();
-        break;
-      }
-      case "x-api-key":
-      default:
-        headers["x-api-key"] = FREEASTRO_API_KEY;
-    }
-
-    // NOTE: If the API wants GET, change method accordingly (per docs)
-    const upstreamRes = await fetch(url, {
+    const upstream = await fetch(url, {
       method: "POST",
-      headers,
-      body: JSON.stringify(input),
+      headers: {
+        "Content-Type": "application/json",
+        // ★ 用 Netlify 環境變數
+        "x-api-key": process.env.FREEASTRO_API_KEY,
+      },
+      body: JSON.stringify({
+        year: body.year,
+        month: body.month,
+        date: body.day,         // API 需要 "date"
+        hours: body.hour,       // API 需要 "hours"
+        minutes: body.minute,   // API 需要 "minutes"
+        seconds: body.seconds ?? 0,
+        latitude: body.latitude,
+        longitude: body.longitude,
+        timezone: body.timezone,
+      }),
     });
 
-    const raw = await upstreamRes.text();
-    let payload;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      payload = { raw };
-    }
-
-    // Return upstream status, plus a tiny bit of debug (no secrets)
-    return new Response(
-      JSON.stringify({
-        upstreamStatus: upstreamRes.status,
-        upstreamUrlUsed: url,
-        authStyle: (FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase(),
-        data: payload,
-      }),
-      {
-        status: upstreamRes.status,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
-      }
-    );
+    const data = await upstream.json();
+    return {
+      statusCode: upstream.status,
+      body: JSON.stringify(data),
+    };
   } catch (err) {
-    return new Response(
-      JSON.stringify({ error: "Proxy error", detail: String(err) }),
-      { status: 502, headers: { "Content-Type": "application/json" } }
-    );
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: err.message }),
+    };
   }
 };
