@@ -1,48 +1,78 @@
 // netlify/functions/natal.js
+export async function handler(event) {
+  // --- CORS Preflight ---
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key",
+      },
+      body: "",
+    };
+  }
 
-exports.handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Method Not Allowed" }),
+    };
+  }
+
+  const { FREEASTRO_API_URL, FREEASTRO_API_KEY } = process.env;
+  if (!FREEASTRO_API_URL || !FREEASTRO_API_KEY) {
+    return {
+      statusCode: 500,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Missing FREEASTRO_API_URL or FREEASTRO_API_KEY" }),
+    };
+  }
+
+  let payload;
   try {
-    if (event.httpMethod !== "POST") {
-      return {
-        statusCode: 405,
-        body: JSON.stringify({ error: "Method Not Allowed" }),
-      };
-    }
+    payload = JSON.parse(event.body || "{}");
+  } catch {
+    return {
+      statusCode: 400,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Invalid JSON body" }),
+    };
+  }
 
-    const body = JSON.parse(event.body || "{}");
-
-    // FreeAstrologyAPI endpoint (ex: planets)
-    const url = "https://json.freeastrologyapi.com/planets";
-
-    const upstream = await fetch(url, {
+  try {
+    const res = await fetch(FREEASTRO_API_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // ★ 用 Netlify 環境變數
-        "x-api-key": process.env.FREEASTRO_API_KEY,
+        "x-api-key": FREEASTRO_API_KEY,
       },
-      body: JSON.stringify({
-        year: body.year,
-        month: body.month,
-        date: body.day,         // API 需要 "date"
-        hours: body.hour,       // API 需要 "hours"
-        minutes: body.minute,   // API 需要 "minutes"
-        seconds: body.seconds ?? 0,
-        latitude: body.latitude,
-        longitude: body.longitude,
-        timezone: body.timezone,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    const data = await upstream.json();
+    const text = await res.text();
+    let json;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      json = { raw: text };
+    }
+
     return {
-      statusCode: upstream.status,
-      body: JSON.stringify(data),
+      statusCode: res.status,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({
+        upstreamStatus: res.status,
+        upstreamUrl: FREEASTRO_API_URL,
+        data: json,
+      }),
     };
   } catch (err) {
     return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message }),
+      statusCode: 502,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Upstream fetch failed", detail: String(err) }),
     };
   }
-};
+}
