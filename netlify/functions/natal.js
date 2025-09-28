@@ -1,93 +1,97 @@
 // netlify/functions/natal.js
 export async function handler(event) {
-  // 预检 CORS
   if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 204,
-      headers: corsHeaders(),
-      body: ""
-    };
+    return { statusCode: 204, headers: cors(), body: "" };
   }
-
   if (event.httpMethod !== "POST") {
     return json(405, { error: "Only POST is allowed" });
   }
 
   let body;
-  try {
-    body = JSON.parse(event.body || "{}");
-  } catch {
-    return json(400, { error: "Bad JSON body" });
-  }
+  try { body = JSON.parse(event.body || "{}"); }
+  catch { return json(400, { error: "Bad JSON body" }); }
 
-  const API_URL = process.env.FREEASTRO_API_URL;   // 例如 https://json.freeastrologyapi.com/natal
-  const API_KEY = process.env.FREEASTRO_API_KEY || "";
+  const URL_BASE = (process.env.FREEASTRO_API_URL || "").trim();   // e.g. https://json.freeastrologyapi.com/natal
+  let KEY = (process.env.FREEASTRO_API_KEY || "").trim();
 
-  if (!API_URL) return json(500, { error: "FREEASTRO_API_URL not set" });
+  if (!URL_BASE) return json(500, { error: "FREEASTRO_API_URL not set" });
+  if (!KEY)      return json(500, { error: "FREEASTRO_API_KEY not set" });
 
-  // 三段式认证尝试
-  const trials = [
-    { style: "x-api-key", headers: { "x-api-key": API_KEY, "content-type": "application/json" }, url: API_URL },
-    { style: "bearer",    headers: { "authorization": `Bearer ${API_KEY}`, "content-type": "application/json" }, url: API_URL },
-    { style: "query",     headers: { "content-type": "application/json" }, url: withQuery(API_URL, { api_key: API_KEY }) }
+  // 不同寫法的嘗試
+  const headerVariants = [
+    { style: "x-api-key",   headers: { "x-api-key": KEY } },
+    { style: "X-API-Key",   headers: { "X-API-Key": KEY } },
+    { style: "apikey",      headers: { "apikey": KEY } },
+    { style: "api-key",     headers: { "api-key": KEY } },
+    { style: "bearer",      headers: { "authorization": `Bearer ${KEY}` } },
+    { style: "auth-raw",    headers: { "authorization": KEY } },
   ];
+  const queryVariants = ["api_key","apikey","key","token","auth"];
 
-  for (const t of trials) {
-    try {
-      const upstream = await fetch(t.url, {
-        method: "POST",
-        headers: t.headers,
-        body: JSON.stringify(body)
-      });
+  const attempts = [];
 
-      const text = await upstream.text();
-      let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-      // 成功就直接回
-      if (upstream.ok) {
-        return json(200, data);
-      }
-
-      // 失败：把失败的详情也带回（给前端显示）
-      // 先试下一种认证；如果这就是最后一种，就回传
-      if (t.style === "query") {
-        return json(upstream.status, {
-          upstreamStatus: upstream.status,
-          upstreamUrlUsed: t.url,
-          authStyleTried: t.style,
-          data
-        });
-      }
-      // 否则继续下一轮
-    } catch (e) {
-      // 网络错误，直接返回 502
-      return json(502, { error: "Upstream fetch failed", message: String(e) });
-    }
+  // 1) header 變體
+  for (const v of headerVariants) {
+    const res = await tryCall(URL_BASE, body, {
+      "content-type": "application/json",
+      ...v.headers
+    });
+    if (res.ok) return json(200, res.data);
+    attempts.push(slimResult(v.style, URL_BASE, res));
   }
 
-  // 不应到这里
-  return json(500, { error: "Unknown error" });
+  // 2) query 變體
+  for (const name of queryVariants) {
+    const url = withQuery(URL_BASE, { [name]: KEY });
+    const res = await tryCall(url, body, { "content-type": "application/json" });
+    if (res.ok) return json(200, res.data);
+    attempts.push(slimResult(`query:${name}`, url, res));
+  }
+
+  // 全部失敗，回傳摘要供除錯
+  return json(attempts.at(-1)?.status || 403, {
+    error: "Upstream auth failed",
+    tried: attempts
+  });
 }
 
-// 小工具
-function json(status, obj) {
+async function tryCall(url, body, headers) {
+  try {
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    const text = await r.text();
+    let data; try { data = JSON.parse(text); } catch { data = { raw: text } }
+    return { ok: r.ok, status: r.status, data };
+  } catch (e) {
+    return { ok: false, status: 502, data: { error: String(e) } };
+  }
+}
+
+function slimResult(style, url, res) {
+  // 只回傳部分資訊（不含金鑰）
+  const brief =
+    typeof res.data === "object" && res.data !== null
+      ? (res.data.message || res.data.error || res.data.raw || JSON.stringify(res.data)).toString()
+      : String(res.data);
   return {
-    statusCode: status,
-    headers: corsHeaders(),
-    body: JSON.stringify(obj)
+    authStyleTried: style,
+    upstreamUrlUsed: url,
+    status: res.status,
+    message: brief.slice(0, 180) // 取前 180 字方便閱讀
   };
 }
 
-function corsHeaders() {
+function json(status, obj) {
+  return { statusCode: status, headers: cors(), body: JSON.stringify(obj) };
+}
+function cors() {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key"
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key, X-API-Key, api-key, apikey"
   };
 }
-
 function withQuery(url, params) {
   const u = new URL(url);
-  Object.entries(params).forEach(([k, v]) => v != null && u.searchParams.set(k, v));
+  for (const [k, v] of Object.entries(params)) if (v != null) u.searchParams.set(k, v);
   return u.toString();
 }
