@@ -59,7 +59,7 @@
 <body>
   <div class="wrap">
     <h1>Astro Natal API</h1>
-    <p class="muted">輸入生日與地名資料，點「查詢地名」取得經緯度，再點「產生星盤」。本頁已改為 24 小時制（小時/分鐘兩欄）。</p>
+    <p class="muted">輸入生日與地名資料，點「查詢地名」取得經緯度，再點「產生星盤」。</p>
 
     <!-- 輸入區 -->
     <div class="card">
@@ -69,15 +69,16 @@
           <input id="date" type="date" value="1958-01-07" />
         </div>
 
-        <!-- 兩欄式時間（24h） -->
         <div class="row-2">
           <label>出生時間（24 小時制）</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="hour" type="number" min="0" max="23" step="1" inputmode="numeric" value="20" style="width:100%;">
-            <span style="opacity:.6;">:</span>
-            <input id="minute" type="number" min="0" max="59" step="1" inputmode="numeric" value="50" style="width:100%;">
+          <div style="display:flex; gap:8px;">
+            <select id="hour" style="width:50%;">
+              <!-- 0..23 稍後用 JS 填入 -->
+            </select>
+            <select id="minute" style="width:50%;">
+              <!-- 00..59 稍後用 JS 填入 -->
+            </select>
           </div>
-          <div class="status">範圍：小時 0–23，分鐘 0–59</div>
         </div>
 
         <div class="row-2">
@@ -137,28 +138,45 @@
   </div>
 
   <script>
-    // --- Base URL 修復（Netlify / 本機皆可） ---
-    const NETLIFY_SITE = "https://astro-natal-clean.netlify.app"; // 你的站點
+    // --- Base URL (本機 / 正式站自動切換) ---
+    const NETLIFY_SITE = "https://astro-natal-clean.netlify.app";
     const BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
       ? "http://localhost:8888"
       : (location.origin.startsWith("http") ? location.origin : NETLIFY_SITE);
 
     // --- DOM ---
-    const dateEl   = document.getElementById('date');
-    const hourEl   = document.getElementById('hour');
+    const dateEl = document.getElementById('date');
+    const hourEl = document.getElementById('hour');
     const minuteEl = document.getElementById('minute');
-    const tzEl     = document.getElementById('timezone');
-    const langEl   = document.getElementById('language');
-    const placeEl  = document.getElementById('place');
-    const latEl    = document.getElementById('latitude');
-    const lonEl    = document.getElementById('longitude');
-    const runBtn   = document.getElementById('runBtn');
-    const runStatus= document.getElementById('runStatus');
-    const geoBtn   = document.getElementById('geoBtn');
-    const geoStatus= document.getElementById('geoStatus');
+    const tzEl = document.getElementById('timezone');
+    const langEl = document.getElementById('language');
+    const placeEl = document.getElementById('place');
+    const latEl = document.getElementById('latitude');
+    const lonEl = document.getElementById('longitude');
+    const runBtn = document.getElementById('runBtn');
+    const runStatus = document.getElementById('runStatus');
+    const geoBtn = document.getElementById('geoBtn');
+    const geoStatus = document.getElementById('geoStatus');
     const resultJson = document.getElementById('resultJson');
-    const tableCard  = document.getElementById('tableCard');
-    const tableBody  = document.querySelector('#resultTable tbody');
+    const tableCard = document.getElementById('tableCard');
+    const tableBody = document.querySelector('#resultTable tbody');
+
+    // 填入 0..23 小時 / 00..59 分鐘
+    (function fillTimeOptions(){
+      for (let h=0; h<24; h++){
+        const opt = document.createElement('option');
+        opt.value = h; opt.textContent = String(h).padStart(2,'0');
+        hourEl.appendChild(opt);
+      }
+      for (let m=0; m<60; m++){
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = String(m).padStart(2,'0');
+        minuteEl.appendChild(opt);
+      }
+      // 預設 08:50
+      hourEl.value = 8;
+      minuteEl.value = 50;
+    })();
 
     const SIGN_ZH = ["牡羊","金牛","雙子","巨蟹","獅子","處女","天秤","天蠍","射手","摩羯","水瓶","雙魚"];
     const SIGN_EN = ["Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"];
@@ -167,7 +185,7 @@
       return names[idx % 12] ?? idx;
     }
 
-    // --- API 包裝 ---
+    // 取得經緯度
     async function callGeo(place) {
       const url = `${BASE}/.netlify/functions/geo?place=${encodeURIComponent(place)}`;
       const res = await fetch(url);
@@ -175,18 +193,25 @@
       return res.json();
     }
 
+    // 呼叫 natal，無論成功或失敗都回傳 body；失敗用 __error 標記
     async function callNatal(payload) {
       const url = `${BASE}/.netlify/functions/natal`;
       const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(payload)
       });
-      if (!res.ok) throw new Error(`NATAL HTTP ${res.status}`);
-      return res.json();
+
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+      if (!res.ok) {
+        return { __error: true, status: res.status, data };
+      }
+      return data;
     }
 
-    // --- 事件：查詢地名 → 經緯度 ---
+    // 查詢地名 → 填入經緯度
     geoBtn.addEventListener('click', async () => {
       const place = placeEl.value.trim();
       if (!place) { geoStatus.textContent = "請輸入地名"; return; }
@@ -196,86 +221,66 @@
         latEl.value = Number(data.lat).toFixed(5);
         lonEl.value = Number(data.lon).toFixed(5);
         geoStatus.textContent = `OK：${data.display_name}`;
-      } catch (e) {
-        geoStatus.textContent = "查詢失敗：" + e.message;
-      }
+      } catch (e) { geoStatus.textContent = "查詢失敗：" + e.message; }
     });
 
-    // --- 事件：產生星盤 ---
+    // 產生星盤
     runBtn.addEventListener('click', async () => {
-      runStatus.textContent = "計算中…";
-      tableCard.style.display = "none";
-      tableBody.innerHTML = "";
+      runStatus.textContent = "計算中…"; tableCard.style.display="none"; tableBody.innerHTML="";
+      const [y,m,d] = dateEl.value.split("-").map(Number);
+      const hh = Number(hourEl.value);
+      const mm = Number(minuteEl.value);
 
-      const [y, m, d] = dateEl.value.split("-").map(Number);
-
-      // 讀兩欄式時間（保證 24h）
-      let hh = Number(hourEl.value);
-      let mm = Number(minuteEl.value);
-      if (isNaN(hh) || isNaN(mm)) { runStatus.textContent = "錯誤：時間格式不正確"; return; }
-      if (hh < 0 || hh > 23 || mm < 0 || mm > 59) {
-        runStatus.textContent = "錯誤：小時 0–23，分鐘 0–59";
-        return;
-      }
-
-      // 經緯度處理
       let lat = Number(latEl.value), lon = Number(lonEl.value);
-      try {
-        if (isNaN(lat) || isNaN(lon)) {
-          if (!placeEl.value.trim()) { runStatus.textContent="錯誤：請輸入地名或經緯度"; return; }
-          const g = await callGeo(placeEl.value.trim());
-          lat = Number(g.lat); lon = Number(g.lon);
-          latEl.value = lat.toFixed(5); lonEl.value = lon.toFixed(5);
-        }
-      } catch (e) {
-        resultJson.textContent = JSON.stringify({ error: "GEO 失敗：" + e.message }, null, 2);
-        runStatus.textContent = "錯誤";
-        return;
+      if (isNaN(lat) || isNaN(lon)) {
+        if (!placeEl.value.trim()) { runStatus.textContent="錯誤：請輸入地名或經緯度"; return; }
+        const g = await callGeo(placeEl.value.trim());
+        lat = Number(g.lat); lon = Number(g.lon);
+        latEl.value = lat.toFixed(5); lonEl.value = lon.toFixed(5);
       }
 
-      const payload = {
-        year: y, month: m, day: d,
-        hour: hh, minute: mm,
-        latitude: lat, longitude: lon,
-        timezone: Number(tzEl.value),
-        language: langEl.value
-      };
-
+      const payload = { year:y, month:m, day:d, hour:hh, minute:mm, latitude:lat, longitude:lon, timezone:Number(tzEl.value), language:langEl.value };
       try {
         const data = await callNatal(payload);
+
+        if (data.__error) {
+          resultJson.textContent = JSON.stringify({
+            error: `NATAL HTTP ${data.status}`,
+            detail: data.data
+          }, null, 2);
+          runStatus.textContent = "錯誤";
+          return;
+        }
+
         resultJson.textContent = JSON.stringify(data, null, 2);
         renderTable(data);
         runStatus.textContent = "完成";
       } catch (e) {
-        resultJson.textContent = JSON.stringify({ error: String(e) }, null, 2);
+        resultJson.textContent = JSON.stringify({error:String(e)},null,2);
         runStatus.textContent = "錯誤";
       }
     });
 
-    // --- 將回傳整理成表格 ---
+    // 把 API 回傳轉成表格
     function renderTable(resp) {
       let rows = [];
       if (Array.isArray(resp?.output)) {
         const obj = resp.output.find(x => x && typeof x === "object" && !x["0"]);
-        if (obj) for (const [k, v] of Object.entries(obj)) rows.push({ name: k, ...v });
+        if (obj) for (const [k,v] of Object.entries(obj)) rows.push({name:k,...v});
       }
       if (!rows.length && resp?.output?.[0]) {
-        for (const [k, v] of Object.entries(resp.output[0])) rows.push({ name: v.name ?? k, ...v });
+        for (const [k,v] of Object.entries(resp.output[0])) rows.push({name:v.name??k,...v});
       }
       if (!rows.length) return;
-
-      rows.sort((a, b) => (a.normDegree ?? a.fullDegree) - (b.normDegree ?? b.fullDegree));
-      tableBody.innerHTML = rows.map(r => `
-        <tr>
-          <td>${r.name}</td>
-          <td>${(r.normDegree ?? r.fullDegree).toFixed(2)}°</td>
-          <td>${signName(r.current_sign)}</td>
-          <td>${r.house_number ?? ""}</td>
-          <td>${r.isRetro ? "是" : "否"}</td>
-        </tr>
-      `).join("");
-
-      tableCard.style.display = "";
+      rows.sort((a,b)=>(a.normDegree??a.fullDegree)-(b.normDegree??b.fullDegree));
+      tableBody.innerHTML = rows.map(r => `<tr>
+        <td>${r.name}</td>
+        <td>${(r.normDegree??r.fullDegree).toFixed(2)}°</td>
+        <td>${signName(r.current_sign)}</td>
+        <td>${r.house_number??""}</td>
+        <td>${r.isRetro?"是":"否"}</td>
+      </tr>`).join("");
+      tableCard.style.display="";
     }
   </script>
 </body>

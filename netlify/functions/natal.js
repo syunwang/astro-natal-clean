@@ -1,84 +1,93 @@
 // netlify/functions/natal.js
-export default async (req, context) => {
-  const allow = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS"
-  };
-
-  if (req.method === "OPTIONS") {
-    return new Response("", { status: 204, headers: allow });
-  }
-  if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Only POST is allowed" }), {
-      status: 405,
-      headers: { ...allow, "Content-Type": "application/json" }
-    });
+export async function handler(event) {
+  // 预检 CORS
+  if (event.httpMethod === "OPTIONS") {
+    return {
+      statusCode: 204,
+      headers: corsHeaders(),
+      body: ""
+    };
   }
 
+  if (event.httpMethod !== "POST") {
+    return json(405, { error: "Only POST is allowed" });
+  }
+
+  let body;
   try {
-    const env = process.env;
-    const API_URL = env.FREEASTRO_API_URL; // e.g. https://json.freeastrologyapi.com/natal
-    const API_KEY = env.FREEASTRO_API_KEY;
+    body = JSON.parse(event.body || "{}");
+  } catch {
+    return json(400, { error: "Bad JSON body" });
+  }
 
-    if (!API_URL || !API_KEY) {
-      return new Response(JSON.stringify({
-        error: "Missing API config",
-        hint: "Check FREEASTRO_API_URL and FREEASTRO_API_KEY in Netlify > Site settings > Environment variables"
-      }), { status: 500, headers: { ...allow, "Content-Type": "application/json" }});
-    }
+  const API_URL = process.env.FREEASTRO_API_URL;   // 例如 https://json.freeastrologyapi.com/natal
+  const API_KEY = process.env.FREEASTRO_API_KEY || "";
 
-    const payload = await req.json();
+  if (!API_URL) return json(500, { error: "FREEASTRO_API_URL not set" });
 
-    // --- try 1: x-api-key header
-    let upstreamRes = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
-      body: JSON.stringify(payload)
-    });
+  // 三段式认证尝试
+  const trials = [
+    { style: "x-api-key", headers: { "x-api-key": API_KEY, "content-type": "application/json" }, url: API_URL },
+    { style: "bearer",    headers: { "authorization": `Bearer ${API_KEY}`, "content-type": "application/json" }, url: API_URL },
+    { style: "query",     headers: { "content-type": "application/json" }, url: withQuery(API_URL, { api_key: API_KEY }) }
+  ];
 
-    // if unauthorized/forbidden, try a different auth style
-    if (upstreamRes.status === 401 || upstreamRes.status === 403) {
-      // --- try 2: Authorization: Bearer
-      upstreamRes = await fetch(API_URL, {
+  for (const t of trials) {
+    try {
+      const upstream = await fetch(t.url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${API_KEY}` },
-        body: JSON.stringify(payload)
+        headers: t.headers,
+        body: JSON.stringify(body)
       });
 
-      if (upstreamRes.status === 401 || upstreamRes.status === 403) {
-        // --- try 3: query string ?api_key=
-        const url = new URL(API_URL);
-        url.searchParams.set("api_key", API_KEY);
-        upstreamRes = await fetch(url.toString(), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+      const text = await upstream.text();
+      let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+      // 成功就直接回
+      if (upstream.ok) {
+        return json(200, data);
+      }
+
+      // 失败：把失败的详情也带回（给前端显示）
+      // 先试下一种认证；如果这就是最后一种，就回传
+      if (t.style === "query") {
+        return json(upstream.status, {
+          upstreamStatus: upstream.status,
+          upstreamUrlUsed: t.url,
+          authStyleTried: t.style,
+          data
         });
       }
+      // 否则继续下一轮
+    } catch (e) {
+      // 网络错误，直接返回 502
+      return json(502, { error: "Upstream fetch failed", message: String(e) });
     }
-
-    const text = await upstreamRes.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = text; }
-
-    // pass through success; otherwise include debug
-    const ok = upstreamRes.ok;
-    const body = ok ? data : {
-      upstreamStatus: upstreamRes.status,
-      upstreamUrlUsed: API_URL,
-      authTried: ["x-api-key", "bearer", "query"],
-      data
-    };
-
-    return new Response(JSON.stringify(body), {
-      status: ok ? 200 : upstreamRes.status,
-      headers: { ...allow, "Content-Type": "application/json" }
-    });
-  } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...allow, "Content-Type": "application/json" }
-    });
   }
-};
+
+  // 不应到这里
+  return json(500, { error: "Unknown error" });
+}
+
+// 小工具
+function json(status, obj) {
+  return {
+    statusCode: status,
+    headers: corsHeaders(),
+    body: JSON.stringify(obj)
+  };
+}
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-api-key"
+  };
+}
+
+function withQuery(url, params) {
+  const u = new URL(url);
+  Object.entries(params).forEach(([k, v]) => v != null && u.searchParams.set(k, v));
+  return u.toString();
+}
