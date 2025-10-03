@@ -4,25 +4,24 @@ async function geo(place) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ place })
   });
-  return r.json(); // { lat, lon, display_name }
+  return r.json();  // 期望 { lat, lon, display_name }
 }
 
-// 2) 行星位置 (JSON)
+// 2) 行星位置
 async function planets(input) {
   const r = await fetch('/.netlify/functions/freeastro-planets', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
+    body: JSON.stringify(input) // year, month, day, hours, minutes, latitude, longitude, timezone, language
   });
   return r.json();
 }
 
-// 3) 盤圖 (回 blob)
+// 3) 盤圖（回 blob）
 async function wheel(input) {
   const r = await fetch('/.netlify/functions/freeastro-wheel', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input)
   });
-  const blob = await r.blob();              // image/png or image/svg+xml
-  return URL.createObjectURL(blob);         // use in <img src="...">
+  const blob = await r.blob(); // 可能是 image/png 或 image/svg+xml
+  return URL.createObjectURL(blob); // 可丟到 <img src="...">
 }
-
