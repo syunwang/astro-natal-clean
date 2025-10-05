@@ -1,32 +1,35 @@
-import fetch from "node-fetch";
-import { addChineseSigns } from "./_i18n.js";
+// /netlify/functions/freeastro-planets.js
+// Proxy to your provider: FREEASTRO_URL_PLANETS
 
-const BASE = "https://json.freeastrologyapi.com";
-const API_KEY = process.env.FREEASTRO_API_KEY;
+const API_KEY    = process.env.FREEASTRO_API_KEY || '';
+const API_URL    = process.env.FREEASTRO_URL_PLANETS || '';
+const AUTH_STYLE = (process.env.FREEASTRO_AUTH_STYLE || 'x-api-key').trim();
 
 export async function handler(event) {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+  if (!API_URL) {
+    return { statusCode: 500, body: JSON.stringify({ error: 'FREEASTRO_URL_PLANETS not set' }) };
+  }
+
   try {
-    const input = JSON.parse(event.body || "{}");
-    // 期望前端送來：year, month, day, hour, minute, latitude, longitude, timezone
-    const payload = {
-      year: +input.year, month: +input.month, day: +input.day,
-      hours: +input.hour, minutes: +input.minute,  // 官方多半用 hours/minutes
-      latitude: +input.latitude, longitude: +input.longitude,
-      timezone: +input.timezone
-    };
-    const r = await fetch(`${BASE}/western/planets`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
-      body: JSON.stringify(payload)
+    const headers = { 'Content-Type': 'application/json' };
+    if (AUTH_STYLE.toLowerCase() === 'authorization') {
+      headers['Authorization'] = `Bearer ${API_KEY}`;
+    } else {
+      headers[AUTH_STYLE] = API_KEY; // e.g. x-api-key
+    }
+
+    const upstream = await fetch(API_URL, {
+      method: 'POST',
+      headers,
+      body: event.body || '{}'
     });
-    const data = await r.json();
-    const localized = addChineseSigns(data);
-    return {
-      statusCode: r.status,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify(localized)
-    };
-  } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: String(e) }) };
+
+    const text = await upstream.text();
+    return { statusCode: upstream.status, body: text };
+  } catch (err) {
+    return { statusCode: 502, body: JSON.stringify({ error: 'Upstream error', detail: String(err) }) };
   }
 }
