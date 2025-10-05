@@ -1,28 +1,149 @@
-// 1) 地名 → 經緯度
-async function geo(place) {
-  const r = await fetch('/.netlify/functions/freeastro-geo', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ place })
-  });
-  return r.json(); // { lat, lon, display_name }
-}
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Astro Natal API</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; margin: 20px; line-height: 1.5; }
+    label { display:block; margin-top:12px; }
+    input, select, button { padding:8px 10px; font-size:16px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+    .out { margin-top:16px; white-space:pre-wrap; background:#111; color:#eee; padding:12px; border-radius:8px; }
+    img { max-width: 100%; height: auto; display:block; margin-top:12px; }
+  </style>
+</head>
+<body>
+  <h1>Astro Natal API</h1>
 
-// 2) 行星位置 (JSON)
-async function planets(input) {
-  const r = await fetch('/.netlify/functions/freeastro-planets', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
-  });
-  return r.json();
-}
+  <div class="row">
+    <label>出生日期 <input id="date" type="date" value="1958-01-07" /></label>
+    <label>时间(24h)：
+      <select id="hour"></select> :
+      <select id="minute"></select>
+    </label>
+    <label>时区 <input id="tz" type="number" step="1" value="8" /></label>
+  </div>
 
-// 3) 盤圖 (回 blob)
-async function wheel(input) {
-  const r = await fetch('/.netlify/functions/freeastro-wheel', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input)
-  });
-  const blob = await r.blob();              // image/png or image/svg+xml
-  return URL.createObjectURL(blob);         // use in <img src="...">
-}
+  <div class="row">
+    <label>地名 (自动转经纬度) <input id="place" placeholder="Tainan, Taiwan" value="Tainan, Taiwan" /></label>
+    <button id="btnGeo">查询地名→经纬度</button>
+  </div>
 
+  <div class="row">
+    <label>纬度 <input id="lat" type="number" step="0.00001" value="22.99123" /></label>
+    <label>经度 <input id="lon" type="number" step="0.00001" value="120.18498" /></label>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <button id="btnPlanets">取得行星位置(JSON)</button>
+    <button id="btnWheel">产生星盘(图)</button>
+  </div>
+
+  <div class="out" id="log">就绪…</div>
+  <img id="wheel" alt="星盘" />
+
+  <script>
+    // ---------- helpers: fetch your Netlify Functions ----------
+    async function geo(place) {
+      const r = await fetch('/.netlify/functions/freeastro-geo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ place })
+      });
+      return r.json(); // { lat, lon, display_name }
+    }
+
+    async function planets(input) {
+      const r = await fetch('/.netlify/functions/freeastro-planets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)  // { year, month, day, hours, minutes, latitude, longitude, timezone, language }
+      });
+      return r.json();
+    }
+
+    async function wheel(input) {
+      const r = await fetch('/.netlify/functions/freeastro-wheel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      });
+      const blob = await r.blob();     // image/png or image/svg+xml
+      return URL.createObjectURL(blob); // use in <img src="...">
+    }
+
+    // ---------- UI wiring ----------
+    const hourSel = document.querySelector('#hour');
+    const minSel  = document.querySelector('#minute');
+    for (let i=0;i<24;i++) {
+      const o = document.createElement('option'); o.value=o.textContent=String(i).padStart(2,'0'); hourSel.appendChild(o);
+    }
+    for (let i=0;i<60;i++) {
+      const o = document.createElement('option'); o.value=o.textContent=String(i).padStart(2,'0'); minSel.appendChild(o);
+    }
+    hourSel.value='20'; minSel.value='50';
+
+    const el = (id) => document.getElementById(id);
+    const log = (v) => (el('log').textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2));
+
+    document.getElementById('btnGeo').addEventListener('click', async () => {
+      log('查詢中…');
+      try {
+        const res = await geo(el('place').value.trim());
+        if (res && res.lat && res.lon) {
+          el('lat').value = res.lat;
+          el('lon').value = res.lon;
+          log({ ok:true, display_name: res.display_name, lat: res.lat, lon: res.lon });
+        } else {
+          log(res || { error:'无资料' });
+        }
+      } catch (e) {
+        log({ error: e.message || e });
+      }
+    });
+
+    document.getElementById('btnPlanets').addEventListener('click', async () => {
+      log('取得中…');
+      try {
+        const [y,m,d] = el('date').value.split('-').map(Number);
+        const input = {
+          year:y, month:m, day:d,
+          hours: Number(el('hour').value),
+          minutes: Number(el('minute').value),
+          latitude: Number(el('lat').value),
+          longitude: Number(el('lon').value),
+          timezone: Number(el('tz').value),
+          language: 'zh'
+        };
+        const res = await planets(input);
+        log(res);
+      } catch (e) {
+        log({ error: e.message || e });
+      }
+    });
+
+    document.getElementById('btnWheel').addEventListener('click', async () => {
+      log('生成星盘中…');
+      el('wheel').src = '';
+      try {
+        const [y,m,d] = el('date').value.split('-').map(Number);
+        const input = {
+          year:y, month:m, day:d,
+          hours: Number(el('hour').value),
+          minutes: Number(el('minute').value),
+          latitude: Number(el('lat').value),
+          longitude: Number(el('lon').value),
+          timezone: Number(el('tz').value),
+          language: 'zh'
+        };
+        const url = await wheel(input);
+        el('wheel').src = url;
+        log('完成');
+      } catch (e) {
+        log({ error: e.message || e });
+      }
+    });
+  </script>
+</body>
+</html>
