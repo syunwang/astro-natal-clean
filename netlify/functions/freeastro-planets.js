@@ -1,52 +1,105 @@
 // netlify/functions/freeastro-planets.js
+import fetch from "node-fetch";
+
 export async function handler(event) {
   try {
-    const input = JSON.parse(event.body || '{}');
+    // Parse request body from frontend
+    const body = JSON.parse(event.body || "{}");
+    const {
+      year,
+      month,
+      day,
+      hours,
+      minutes,
+      latitude,
+      longitude,
+      timezone
+    } = body;
 
-    // Build the upstream URL robustly
-    const base = (process.env.FREEASTRO_BASE || '').replace(/\/+$/, '');
-    const urlFromEnv = process.env.FREEASTRO_URL_PLANETS;
-    const planetsUrl = (urlFromEnv || (base ? `${base}/western/planets` : '')).trim();
-
-    if (!planetsUrl.startsWith('http')) {
-      return resp(500, {
-        error: 'Config error',
-        detail: 'FREEASTRO_URL_PLANETS or FREEASTRO_BASE is missing/invalid'
-      });
+    // Validation check
+    if (
+      !year ||
+      !month ||
+      !day ||
+      hours === undefined ||
+      minutes === undefined ||
+      latitude === undefined ||
+      longitude === undefined ||
+      timezone === undefined
+    ) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          error: "Missing required parameters",
+          detail:
+            "Expected: { year, month, day, hours, minutes, latitude, longitude, timezone }"
+        })
+      };
     }
 
-    // Auth header
-    const key = process.env.FREEASTRO_API_KEY || '';
-    const authStyle = (process.env.FREEASTRO_AUTH_STYLE || 'x-api-key').trim();
+    // Construct target URL
+    const url = process.env.FREEASTRO_URL_PLANETS || process.env.FREEASTRO_BASE + "/planets";
 
-    const upstream = await fetch(planetsUrl, {
-      method: 'POST',
+    if (!url) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          error: "Config error",
+          detail: "FREEASTRO_URL_PLANETS or FREEASTRO_BASE is missing/invalid"
+        })
+      };
+    }
+
+    // Prepare request body for FreeAstrology API
+    const payload = {
+      year: parseInt(year),
+      month: parseInt(month),
+      date: parseInt(day),
+      hours: parseInt(hours),
+      minutes: parseInt(minutes),
+      lat: parseFloat(latitude),
+      lon: parseFloat(longitude),
+      tzone: parseFloat(timezone)
+    };
+
+    console.log("Sending payload:", payload);
+
+    // Call FreeAstrology API
+    const response = await fetch(url, {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        [authStyle]: key
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.FREEASTRO_API_KEY}`
       },
-      body: JSON.stringify(input)
+      body: JSON.stringify(payload)
     });
 
-    if (!upstream.ok) {
-      const text = await upstream.text();
-      return resp(upstream.status, {
-        error: 'Upstream error',
-        detail: text
-      });
+    const data = await response.json();
+
+    // Error handling
+    if (!response.ok) {
+      return {
+        statusCode: response.status,
+        body: JSON.stringify({
+          error: "Upstream error",
+          detail: data
+        })
+      };
     }
 
-    const data = await upstream.json();
-    return resp(200, data);
-  } catch (e) {
-    return resp(502, { error: 'Function error', detail: String(e) });
+    // Return successful response
+    return {
+      statusCode: 200,
+      body: JSON.stringify(data)
+    };
+  } catch (err) {
+    console.error("Server error:", err);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Server error",
+        detail: err.message
+      })
+    };
   }
-}
-
-function resp(statusCode, body) {
-  return {
-    statusCode,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  };
 }
