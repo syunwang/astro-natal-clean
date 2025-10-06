@@ -1,6 +1,14 @@
-[functions]
-  directory = "netlify/functions"
-  node_bundler = "esbuild"
+[build]
+  publish = "."
+  command = ""   # 無需 build
+  [build.environment]
+    # 只示意：真正值請到 Netlify UI 設
+    # FREEASTRO_API_KEY = ""
+    # FREEASTRO_AUTH_STYLE = "x-api-key"
+    # FREEASTRO_GEO_URL = "https://nominatim.openstreetmap.org/search?format=json&q="
+    # FREEASTRO_URL_PLANETS = "https://json.freeastrologyapi.com/western/planets"
+    # FREEASTRO_URL_WHEEL = "https://json.freeastrologyapi.com/western/natal-wheel-chart"
 
-[functions."*"]
+[functions]
+  node_bundler = "esbuild"
   included_files = ["netlify/functions/_i18n.js"]

@@ -1,28 +1,25 @@
-// 12 星座英文 → 中文
-export const SIGN_ZH = [
-  "牡羊","金牛","雙子","巨蟹","獅子","處女","天秤","天蠍","射手","摩羯","水瓶","雙魚"
-];
-export const SIGN_EN = [
-  "Aries","Taurus","Gemini","Cancer","Leo","Virgo","Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"
-];
+// 簡易字典（可自行擴充）
+const PLANET_ZH = {
+  'Sun':'太陽', 'Moon':'月亮', 'Mercury':'水星', 'Venus':'金星', 'Earth':'地球',
+  'Mars':'火星', 'Jupiter':'木星', 'Saturn':'土星', 'Uranus':'天王星', 'Neptune':'海王星', 'Pluto':'冥王星',
+  'Ascendant':'上升', 'Midheaven':'天頂'
+};
+const SIGN_ZH = {
+  'Aries':'牡羊', 'Taurus':'金牛', 'Gemini':'雙子', 'Cancer':'巨蟹',
+  'Leo':'獅子', 'Virgo':'處女', 'Libra':'天秤', 'Scorpio':'天蠍',
+  'Sagittarius':'射手', 'Capricorn':'魔羯', 'Aquarius':'水瓶', 'Pisces':'雙魚'
+};
 
-// 將 API 回傳物件裡的 sign / current_sign 等欄位，補上中文名
-export function addChineseSigns(obj) {
-  const copy = JSON.parse(JSON.stringify(obj));
-  const inject = (node) => {
-    if (!node || typeof node !== "object") return;
-    for (const k of ["sign","zodiac","zodiac_sign","current_sign"]) {
-      if (typeof node[k] === "number") {
-        node[k+"_name_zh"] = SIGN_ZH[node[k] % 12];
-        node[k+"_name_en"] = SIGN_EN[node[k] % 12];
-      }
-      if (typeof node[k] === "string") {
-        const idx = SIGN_EN.findIndex(s => s.toLowerCase() === String(node[k]).toLowerCase());
-        if (idx >= 0) node[k+"_name_zh"] = SIGN_ZH[idx];
-      }
+function translatePlanetsOutput(output, lang='zh') {
+  if (lang === 'en') return output;
+  return (output || []).map(row => {
+    const r = { ...row };
+    if (r.planet?.en && PLANET_ZH[r.planet.en]) r.planet.zh = PLANET_ZH[r.planet.en];
+    if (r.zodiac_sign?.name?.en && SIGN_ZH[r.zodiac_sign.name.en]) {
+      r.zodiac_sign.name.zh = SIGN_ZH[r.zodiac_sign.name.en];
     }
-    for (const v of Object.values(node)) inject(v);
-  };
-  inject(copy);
-  return copy;
+    return r;
+  });
 }
+
+module.exports = { translatePlanetsOutput };
