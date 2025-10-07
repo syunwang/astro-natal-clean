@@ -1,97 +1,71 @@
-// netlify/functions/freeastro-wheel.js
+// 產生星盤圖（PNG 或 SVG）
+// 依賴環境變數：
+//   FREEASTRO_URL_WHEEL = https://json.freeastrologyapi.com/western/natal-wheel-chart
+//   FREEASTRO_API_KEY
+//   FREEASTRO_AUTH_STYLE = x-api-key
+
 export async function handler(event) {
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, body: 'Method Not Allowed' };
+  }
+
+  let input = {};
   try {
-    const {
-      year, month, day, hours, minutes,
-      latitude, longitude, timezone, language
-    } = JSON.parse(event.body || "{}");
+    input = JSON.parse(event.body || '{}');
+  } catch {
+    return { statusCode: 400, body: 'Body is not valid JSON' };
+  }
 
-    // 基本參數檢查
-    const must = { year, month, day, hours, minutes, latitude, longitude, timezone };
-    for (const [k, v] of Object.entries(must)) {
-      if (v === undefined || v === null || v === "") {
-        return {
-          statusCode: 400,
-          body: JSON.stringify({ error: "BadRequest", detail: `Missing ${k}` })
-        };
-      }
-    }
+  const required = ['year', 'month', 'day', 'hours', 'minutes', 'latitude', 'longitude', 'timezone'];
+  const missing = required.filter(k => input[k] === undefined || input[k] === null || input[k] === '');
+  if (missing.length) {
+    return { statusCode: 400, body: `Missing fields: ${missing.join(', ')}` };
+  }
 
-    // ---- 統一組出上游 URL ----
-    // 優先用 FREEASTRO_URL_WHEEL；其次用 FREEASTRO_API_URL 或 FREEASTRO_BASE 推導
-    const env = process.env;
-    let upstream =
-      env.FREEASTRO_URL_WHEEL ||
-      (env.FREEASTRO_API_URL?.replace(/\/natal$/i, "/western/natal-wheel-chart")) ||
-      (env.FREEASTRO_BASE ? `${env.FREEASTRO_BASE.replace(/\/$/, "")}/natal-wheel-chart` : null);
+  const payload = {
+    year: Number(input.year),
+    month: Number(input.month),
+    day: Number(input.day),
+    hours: Number(input.hours),
+    minutes: Number(input.minutes),
+    latitude: Number(input.latitude),
+    longitude: Number(input.longitude),
+    timezone: Number(input.timezone),
+    // 也可增加顏色/樣式等參數，依上游文件
+  };
 
-    if (!upstream) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "Config error", detail: "FREEASTRO_URL_WHEEL or FREEASTRO_API_URL or FREEASTRO_BASE is required" })
-      };
-    }
+  const url = process.env.FREEASTRO_URL_WHEEL;
+  const apiKey = process.env.FREEASTRO_API_KEY;
+  if (!url || !apiKey) {
+    return { statusCode: 500, body: 'Config error: FREEASTRO_URL_WHEEL or FREEASTRO_API_KEY is missing' };
+  }
 
-    // ---- 認證（預設 x-api-key）----
-    const API_KEY = env.FREEASTRO_API_KEY || "";
-    const AUTH_STYLE = (env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
-
-    const headers = { "Content-Type": "application/json", "Accept": "image/png,image/svg+xml" };
-    if (API_KEY) {
-      switch (AUTH_STYLE) {
-        case "x-api-key":
-        case "apikey":
-        case "api-key":
-          headers["x-api-key"] = API_KEY;
-          break;
-        case "bearer":
-          headers["Authorization"] = `Bearer ${API_KEY}`;
-          break;
-        default:
-          headers["x-api-key"] = API_KEY; // 預設
-      }
-    }
-
-    // ---- 上游 payload（沿用你前端送的欄位）----
-    const payload = {
-      year, month, day, hours, minutes,
-      latitude, longitude, timezone,
-      language: language || "zh" // 可空
-    };
-
-    const r = await fetch(upstream, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload)
+  try {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        [process.env.FREEASTRO_AUTH_STYLE || 'x-api-key']: apiKey,
+      },
+      body: JSON.stringify(payload),
     });
 
     if (!r.ok) {
+      // 把上游錯誤文本回傳以便你在前端看到真錯誤
       const text = await r.text();
-      return {
-        statusCode: 502,
-        body: JSON.stringify({
-          error: "Upstream error",
-          status: r.status,
-          detail: text.substring(0, 2000),
-          url: upstream
-        })
-      };
+      return { statusCode: r.status, body: text };
     }
 
-    const contentType = r.headers.get("content-type") || "image/png";
-    const ab = await r.arrayBuffer();
-    const base64 = Buffer.from(ab).toString("base64");
+    const buf = Buffer.from(await r.arrayBuffer());
+    const contentType = r.headers.get('content-type') || 'image/png';
 
     return {
       statusCode: 200,
-      headers: { "Content-Type": contentType },
-      body: base64,
-      isBase64Encoded: true
+      headers: { 'Content-Type': contentType },
+      body: buf.toString('base64'),
+      isBase64Encoded: true,
     };
-  } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "WHEEL Function crashed", detail: String(err?.message || err) })
-    };
+  } catch (e) {
+    return { statusCode: 500, body: String(e) };
   }
 }

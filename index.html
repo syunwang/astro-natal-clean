@@ -1,210 +1,166 @@
-<!doctype html>
-<html lang="zh-Hans">
+<!DOCTYPE html>
+<html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Astro Natal API</title>
   <style>
-    body{font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,'Apple Color Emoji','Segoe UI Emoji'; padding:20px; line-height:1.5; color:#111;}
-    h1{margin:0 0 16px;}
-    label{display:block; margin:6px 0 4px; font-weight:600;}
-    input,select,button{font-size:16px; padding:8px 10px; border:1px solid #ccc; border-radius:6px;}
-    .row{display:grid; grid-template-columns: 150px 1fr; gap:10px; max-width:680px; margin-bottom:10px;}
-    .btns{display:flex; gap:10px; margin:12px 0;}
-    .ok{background:#0ea5e9; color:#fff; border:none; cursor:pointer}
-    .ok:hover{background:#0284c7}
-    .danger{background:#ef4444; color:#fff; border:none; cursor:pointer}
-    .out{white-space:pre-wrap; background:#111; color:#c9f; padding:12px; border-radius:8px; margin-top:12px; max-width:880px; overflow:auto;}
-    table{border-collapse:collapse; margin-top:8px; min-width:720px}
-    th,td{border:1px solid #ddd; padding:8px 10px; text-align:left}
-    th{background:#f5f5f5}
-    .wheel{margin-top:12px;}
-    .wheel img{max-width:880px; display:block; border:1px solid #ddd; border-radius:8px;}
-    .muted{color:#666; font-size:13px}
+    body { font-family: "Segoe UI", system-ui, Arial; margin: 24px; line-height: 1.6; color:#222; }
+    label { display: block; margin-top: 10px; font-weight: bold; }
+    input, select, button { font-size: 15px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
+    button { cursor: pointer; background:#0ea5e9; color:#fff; border:none; margin-top:6px; }
+    button:hover { background:#0284c7; }
+    table { border-collapse: collapse; margin-top: 12px; min-width: 700px; }
+    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+    th { background:#f2f2f2; }
+    pre { background:#111; color:#0f0; padding:12px; border-radius:6px; overflow:auto; }
+    .error { color:#f43; margin-top:10px; }
+    img { max-width: 100%; border:1px solid #ccc; border-radius:8px; margin-top:10px; display:block; }
+    .muted { color:#666; font-size:13px; }
   </style>
 </head>
 <body>
   <h1>Astro Natal API</h1>
 
-  <div class="row">
-    <label>出生日期</label>
-    <input id="date" type="date" value="1958-01-07" />
+  <label>出生日期</label>
+  <input id="date" type="date" value="1958-01-07">
+
+  <label>時間 (24h)</label>
+  <select id="hour"></select> :
+  <select id="minute"></select>
+
+  <label>時區 (UTC Offset)</label>
+  <input id="tz" type="number" step="1" value="8">
+
+  <label>地名 (自動轉經緯度)</label>
+  <div style="display:flex; gap:8px;">
+    <input id="place" style="flex:1" value="Tainan, Taiwan">
+    <button id="btnGeo">查詢地名 → 經緯度</button>
   </div>
 
-  <div class="row">
-    <label>時間(24h)</label>
-    <div style="display:flex; gap:8px">
-      <select id="hh"></select> :
-      <select id="mm"></select>
-    </div>
+  <div style="display:flex; gap:8px; margin-top:6px;">
+    <div><label>緯度</label><input id="lat" type="number" step="0.0001" value="22.99123"></div>
+    <div><label>經度</label><input id="lon" type="number" step="0.0001" value="120.18498"></div>
   </div>
 
-  <div class="row">
-    <label>時區</label>
-    <input id="tz" type="number" value="8" />
+  <div style="margin-top:12px;">
+    <button id="btnPlanets">取得行星位置</button>
+    <button id="btnWheel">產生星盤圖</button>
   </div>
 
-  <div class="row">
-    <label>地名(自動轉經緯度)</label>
-    <div style="display:flex; gap:8px; width:100%">
-      <input id="place" style="flex:1" value="Tainan, Taiwan" />
-      <button class="ok" id="btnGeo">查詢地名→經緯度</button>
-    </div>
-  </div>
+  <div id="errorBox" class="error" style="display:none;"></div>
 
-  <div class="row">
-    <label>緯度</label>
-    <input id="lat" type="number" step="0.00001" value="22.99123" />
-  </div>
-  <div class="row">
-    <label>經度</label>
-    <input id="lon" type="number" step="0.00001" value="120.18498" />
-  </div>
+  <h3>行星位置表</h3>
+  <table id="planetTable">
+    <thead>
+      <tr><th>行星</th><th>星座</th><th>度數</th><th>逆行</th></tr>
+    </thead>
+    <tbody></tbody>
+  </table>
 
-  <div class="btns">
-    <button class="ok" id="btnPlanets">取得行星位置（表格）</button>
-    <button class="ok" id="btnWheel">產生星盤（圖）</button>
-    <button class="danger" id="btnClear">清空輸出</button>
-  </div>
-
-  <div id="msg" class="out" style="display:none"></div>
-  <div id="planetBox"></div>
-
-  <div class="wheel" id="wheelBox" style="display:none">
-    <div class="muted">提示：右鍵圖片可另存；或用下方「下載圖片」按鈕。</div>
-    <img id="wheelImg" alt="星盤" />
-    <div class="btns">
-      <a id="wheelDownload" class="ok" download="natal-wheel.png" href="#">下載圖片</a>
-    </div>
-  </div>
+  <h3>星盤圖</h3>
+  <div class="muted">若成功產生，可右鍵另存圖片。</div>
+  <img id="wheelImg" alt="星盤" style="display:none">
 
   <script>
-    // 時分選項
-    const hh = document.querySelector("#hh");
-    const mm = document.querySelector("#mm");
-    for (let i=0;i<24;i++){ const o=document.createElement("option"); o.value=i; o.textContent=i.toString().padStart(2,"0"); hh.appendChild(o); }
-    for (let i=0;i<60;i++){ const o=document.createElement("option"); o.value=i; o.textContent=i.toString().padStart(2,"0"); mm.appendChild(o); }
-    hh.value = 20; mm.value = 50;
+    // 填入時間下拉
+    const hourSel = document.getElementById('hour');
+    const minSel = document.getElementById('minute');
+    for (let i=0;i<24;i++) hourSel.add(new Option(i.toString().padStart(2,'0'),i));
+    for (let i=0;i<60;i++) minSel.add(new Option(i.toString().padStart(2,'0'),i));
+    hourSel.value=20; minSel.value=50;
 
-    const $ = sel => document.querySelector(sel);
-    const msg = $("#msg");
-    const showMsg = (v)=>{ msg.style.display="block"; msg.textContent= typeof v==="string" ? v : JSON.stringify(v,null,2); }
-    const clearOut = ()=>{ msg.style.display="none"; msg.textContent=""; $("#planetBox").innerHTML=""; $("#wheelBox").style.display="none"; }
+    const errBox = document.getElementById('errorBox');
+    const wheelImg = document.getElementById('wheelImg');
 
-    // i18n：行星與星座（可自行擴充）
-    const i18nPlanet = {
-      "Ascendant":"上升","Sun":"太陽","Moon":"月亮","Mercury":"水星","Venus":"金星",
-      "Mars":"火星","Jupiter":"木星","Saturn":"土星","Uranus":"天王星","Neptune":"海王星","Pluto":"冥王星","Mean Node":"北交點","True Node":"真交點"
-    };
-    const i18nZodiac = {
-      "Aries":"牡羊","Taurus":"金牛","Gemini":"雙子","Cancer":"巨蟹","Leo":"獅子","Virgo":"處女",
-      "Libra":"天秤","Scorpio":"天蠍","Sagittarius":"射手","Capricorn":"摩羯","Aquarius":"水瓶","Pisces":"雙魚"
-    };
-    const degFmt = (d)=> {
-      const deg = Math.floor(d);
-      const m = (d - deg) * 60;
-      const min = Math.floor(m);
-      const sec = Math.round((m - min)*60);
-      return `${deg}° ${min}′ ${sec}″`;
-    };
+    function showError(msg){ errBox.style.display='block'; errBox.textContent=msg; }
+    function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
 
-    function buildInput(language="zh"){
-      const [y,m,d] = $("#date").value.split("-").map(Number);
+    function getInput(){
+      const [y,m,d] = document.getElementById('date').value.split('-').map(Number);
       return {
         year:y, month:m, day:d,
-        hours:Number(hh.value), minutes:Number(mm.value),
-        latitude:Number($("#lat").value),
-        longitude:Number($("#lon").value),
-        timezone:Number($("#tz").value),
-        language
+        hours:+hourSel.value, minutes:+minSel.value,
+        latitude:+document.getElementById('lat').value,
+        longitude:+document.getElementById('lon').value,
+        timezone:+document.getElementById('tz').value
       };
     }
 
-    // 1) 地名→經緯度
-    $("#btnGeo").addEventListener("click", async ()=>{
+    // 地名 -> 經緯度
+    document.getElementById('btnGeo').onclick = async ()=>{
+      clearError();
+      const place = document.getElementById('place').value.trim();
       try{
-        const place = $("#place").value.trim();
-        const r = await fetch("/.netlify/functions/freeastro-geo", {
-          method:"POST", headers:{ "Content-Type":"application/json" },
+        const res = await fetch('/.netlify/functions/freeastro-geo',{
+          method:'POST', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({ place })
         });
-        const data = await r.json();
-        if (!r.ok) throw data;
-        $("#lat").value = data.lat;
-        $("#lon").value = data.lon;
-        showMsg({ ok:true, display_name: data.display_name });
-      }catch(e){ showMsg(e); }
-    });
+        const data = await res.json();
+        if(!res.ok) throw data;
+        document.getElementById('lat').value = data.lat;
+        document.getElementById('lon').value = data.lon;
+        showError('已更新經緯度：' + data.display_name);
+      }catch(e){ showError('地名查詢錯誤：'+JSON.stringify(e)); }
+    };
 
-    // 2) 取得行星（轉成表格）
-    $("#btnPlanets").addEventListener("click", async ()=>{
+    // 度數格式化
+    function fmtDeg(v){
+      const d = Math.floor(v);
+      const m = Math.floor((v-d)*60);
+      const s = Math.round(((v-d)*60 - m)*60);
+      return `${d}° ${m}′ ${s}″`;
+    }
+
+    // 行星位置
+    document.getElementById('btnPlanets').onclick = async ()=>{
+      clearError();
+      const input = getInput();
       try{
-        const payload = buildInput("zh");
-        const r = await fetch("/.netlify/functions/freeastro-planets", {
-          method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload)
+        const res = await fetch('/.netlify/functions/freeastro-planets',{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(input)
         });
-        const data = await r.json();
-        if (!r.ok) throw data;
+        const data = await res.json();
+        if(!res.ok) throw data;
 
-        const list = (data.output || data.planets || data) || [];
+        const list = data.output || data.planets || [];
+        const tbody = document.querySelector('#planetTable tbody');
+        tbody.innerHTML='';
+        list.forEach(p=>{
+          const tr = document.createElement('tr');
+          const name = p.planet?.en || p.planet || '';
+          const sign = p.zodiac_sign?.name?.en || '';
+          const deg = p.normDegree ?? p.fullDegree ?? 0;
+          const retro = (p.isRetro==='True'||p.isRetro===true)?'是':'否';
+          tr.innerHTML = `<td>${name}</td><td>${sign}</td><td>${fmtDeg(+deg)}</td><td>${retro}</td>`;
+          tbody.appendChild(tr);
+        });
+      }catch(e){ showError('行星資料錯誤：'+JSON.stringify(e)); }
+    };
 
-        let html = `<table>
-          <thead><tr>
-            <th>行星</th><th>星座</th><th>度數</th><th>逆行</th>
-          </tr></thead><tbody>`;
-
-        for (const item of list) {
-          const nameEN = item.planet?.en || item.planet || "";
-          const signEN = item.zodiac_sign?.name?.en || item.sign || "";
-          const deg = item.normDegree ?? item.degree ?? item.fullDegree ?? 0;
-          const retro = (item.isRetro === true || item.is_retro === true) ? "是" : "否";
-
-          html += `<tr>
-            <td>${i18nPlanet[nameEN] || nameEN}</td>
-            <td>${i18nZodiac[signEN] || signEN}</td>
-            <td title="${deg}">${degFmt(Number(deg)||0)}</td>
-            <td>${retro}</td>
-          </tr>`;
-        }
-        html += `</tbody></table>`;
-
-        $("#planetBox").innerHTML = html;
-        showMsg("完成");
-      }catch(e){ showMsg(e); }
-    });
-
-    // 3) 星盤圖（顯示 + 下載）
-    $("#btnWheel").addEventListener("click", async ()=>{
+    // 星盤圖
+    document.getElementById('btnWheel').onclick = async ()=>{
+      clearError();
+      const input = getInput();
       try{
-        const payload = buildInput("zh");
-        const r = await fetch("/.netlify/functions/freeastro-wheel", {
-          method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload)
+        const res = await fetch('/.netlify/functions/freeastro-wheel',{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(input)
         });
-
-        const ct = r.headers.get("content-type") || "";
-        if (!r.ok) {
-          const err = ct.includes("application/json") ? await r.json() : await r.text();
-          throw err;
+        if(!res.ok){
+          const text = await res.text();
+          showError('產生星盤錯誤 '+res.status+'：'+text);
+          wheelImg.style.display='none';
+          return;
         }
-        // 從 base64 轉回 blob（Netlify Functions 用 base64 回傳二進位）
-        const b64 = await r.text();
-        const byteChars = atob(b64);
-        const byteNumbers = new Array(byteChars.length);
-        for (let i=0;i<byteChars.length;i++){ byteNumbers[i] = byteChars.charCodeAt(i); }
-        const blob = new Blob([new Uint8Array(byteNumbers)], { type: ct || "image/png" });
-
-        const url = URL.createObjectURL(blob);
-        $("#wheelImg").src = url;
-        const a = $("#wheelDownload");
-        a.href = url;
-        a.download = ct.includes("svg") ? "natal-wheel.svg" : "natal-wheel.png";
-
-        $("#wheelBox").style.display = "block";
-        showMsg("完成");
-      }catch(e){ showMsg(e); }
-    });
-
-    $("#btnClear").addEventListener("click", clearOut);
+        const blob = await res.blob();
+        wheelImg.src = URL.createObjectURL(blob);
+        wheelImg.style.display='block';
+      }catch(e){
+        showError('星盤載入失敗：'+e.message);
+      }
+    };
   </script>
 </body>
 </html>
