@@ -1,80 +1,135 @@
-// 取得行星位置（JSON 表格）
-// 依賴的環境變數：
-//   FREEASTRO_URL_PLANETS = https://json.freeastrologyapi.com/western/planets
-//   FREEASTRO_API_KEY     = <你的 api key>
-//   FREEASTRO_AUTH_STYLE  = x-api-key   （就用這個）
-//
-// !!! 重要：這支不用 node-fetch，直接用 Netlify Node 18 內建的 global fetch。
+// freeastro-planets.js
+// 代理 FreeAstrology API planets 端點（使用全域 fetch，勿引入 node-fetch）
 
-export async function handler(event) {
-  // 只接受 POST
-  if (event.httpMethod !== 'POST') {
-    return resp(405, { error: 'Method Not Allowed' });
+const BASE = process.env.FREEASTRO_BASE || "https://json.freeastrologyapi.com";
+const PLANETS_URL =
+  process.env.FREEASTRO_URL_PLANETS || `${BASE}/western/planets`;
+
+const API_KEY = process.env.FREEASTRO_API_KEY || "";
+const AUTH_STYLE = (process.env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
+
+const commonHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+/** 根據 AUTH_STYLE 建立上游請求的 URL 與 headers */
+function buildUpstream(url) {
+  const headers = { "Content-Type": "application/json" };
+  let finalUrl = url;
+
+  if (!API_KEY) return { url: finalUrl, headers }; // 無金鑰就只回傳預設 headers
+
+  switch (AUTH_STYLE) {
+    case "x-api-key":
+    case "x-api-key-lc":
+    case "x-api-key-uc":
+      headers["x-api-key"] = API_KEY;
+      break;
+    case "x-api-key-cap":
+    case "x-api-key-title":
+    case "x-api-key-proper":
+    case "x-api-key-alt":
+    case "x-api-key-alt2":
+    case "x-api-key-alt3":
+      headers["X-API-Key"] = API_KEY;
+      break;
+    case "apikey":
+    case "api-key":
+      headers["apikey"] = API_KEY;
+      break;
+    case "bearer":
+      headers["Authorization"] = `Bearer ${API_KEY}`;
+      break;
+    case "auth-raw":
+      headers["Authorization"] = API_KEY;
+      break;
+    case "query:api_key":
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "api_key=" + encodeURIComponent(API_KEY);
+      break;
+    case "query:apikey":
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "apikey=" + encodeURIComponent(API_KEY);
+      break;
+    case "query:key":
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(API_KEY);
+      break;
+    case "query:token":
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(API_KEY);
+      break;
+    case "query:auth":
+      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "auth=" + encodeURIComponent(API_KEY);
+      break;
+    default:
+      // 預設使用 x-api-key
+      headers["x-api-key"] = API_KEY;
   }
-
-  let input = {};
-  try {
-    input = JSON.parse(event.body || '{}');
-  } catch (e) {
-    return resp(400, { error: 'Bad Request', detail: 'Body is not valid JSON' });
-  }
-
-  // 後端需要的欄位（以你前端送的命名為準）
-  const required = ['year', 'month', 'day', 'hours', 'minutes', 'latitude', 'longitude', 'timezone'];
-  const missing = required.filter(k => input[k] === undefined || input[k] === null || input[k] === '');
-  if (missing.length) {
-    return resp(400, { error: 'Bad Request', detail: `Missing fields: ${missing.join(', ')}` });
-  }
-
-  // 轉成上游期望的 payload（大多數情況 hours/minutes OK）
-  const payload = {
-    year: Number(input.year),
-    month: Number(input.month),
-    day: Number(input.day),
-    hours: Number(input.hours),
-    minutes: Number(input.minutes),
-    latitude: Number(input.latitude),
-    longitude: Number(input.longitude),
-    timezone: Number(input.timezone),
-    // 不傳 language 也可；若要中文可加：language: "zh"
-  };
-
-  const url = process.env.FREEASTRO_URL_PLANETS;
-  const apiKey = process.env.FREEASTRO_API_KEY;
-  if (!url || !apiKey) {
-    return resp(500, { error: 'Config error', detail: 'FREEASTRO_URL_PLANETS or FREEASTRO_API_KEY is missing' });
-  }
-
-  try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        // 用 x-api-key
-        [process.env.FREEASTRO_AUTH_STYLE || 'x-api-key']: apiKey,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    // 不是 2xx 時，把上游的錯誤內容帶回來，避免 502
-    if (!r.ok) {
-      let detail;
-      try { detail = await r.json(); } catch { detail = await r.text(); }
-      return resp(r.status, { error: 'Upstream error', detail, url });
-    }
-
-    const data = await r.json();  // 上游會回 JSON
-    return resp(200, data);
-  } catch (err) {
-    // 任何未捕捉例外，回 502 會讓你在前端看到 502；我們包成 500 JSON
-    return resp(500, { error: 'Function crash', detail: String(err) });
-  }
+  return { url: finalUrl, headers };
 }
 
-function resp(statusCode, obj) {
-  return {
-    statusCode,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(obj),
-  };
+/** 簡單的 body 驗證（避免 upstream 回 400: Invalid request body） */
+function validateInput(obj) {
+  const need = ["year", "month", "day", "hours", "minutes", "latitude", "longitude", "tz"];
+  for (const k of need) {
+    if (obj[k] === undefined || obj[k] === null || obj[k] === "") return false;
+  }
+  return true;
+}
+
+export async function handler(event) {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: commonHeaders,
+      body: JSON.stringify({ error: "Method not allowed" }),
+    };
+  }
+
+  try {
+    const input = JSON.parse(event.body || "{}");
+    if (!validateInput(input)) {
+      return {
+        statusCode: 400,
+        headers: commonHeaders,
+        body: JSON.stringify({ error: "Invalid request body (missing fields)" }),
+      };
+    }
+
+    const { url, headers } = buildUpstream(PLANETS_URL);
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+    });
+
+    const text = await r.text();
+    let json;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+
+    if (!r.ok) {
+      return {
+        statusCode: r.status,
+        headers: commonHeaders,
+        body: JSON.stringify({
+          error: "Upstream error",
+          status: r.status,
+          detail: json,
+          url,
+        }),
+      };
+    }
+
+    // 統一輸出格式：{ statusCode: 200, output: [...] }
+    const output = json?.output || json?.data || json;
+    return {
+      statusCode: 200,
+      headers: { ...commonHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ statusCode: 200, output }),
+    };
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: commonHeaders,
+      body: JSON.stringify({ error: "Planets upstream error", detail: String(err) }),
+    };
+  }
 }

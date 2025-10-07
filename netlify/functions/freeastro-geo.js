@@ -1,40 +1,64 @@
-// 地名 -> 經緯度
-// FREEASTRO_GEO_URL = https://nominatim.openstreetmap.org/search?format=json&q=
+// freeastro-geo.js
+// 以 Nominatim 將地名轉為經緯度（使用全域 fetch，勿引入 node-fetch）
+
+const GEO_URL =
+  process.env.FREEASTRO_GEO_URL ||
+  "https://nominatim.openstreetmap.org/search?format=json&q=";
+
+const commonHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
 
 export async function handler(event) {
-  if (event.httpMethod !== 'POST') {
-    return resp(405, { error: 'Method Not Allowed' });
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: commonHeaders,
+      body: JSON.stringify({ error: "Method not allowed" }),
+    };
   }
-
-  let place = '';
-  try { place = (JSON.parse(event.body || '{}').place || '').trim(); }
-  catch { return resp(400, { error: 'Bad Request', detail: 'Body is not valid JSON' }); }
-
-  if (!place) return resp(400, { error: 'Bad Request', detail: 'Missing place' });
-
-  const base = process.env.FREEASTRO_GEO_URL || 'https://nominatim.openstreetmap.org/search?format=json&q=';
-  const url = `${base}${encodeURIComponent(place)}`;
 
   try {
+    const { place } = JSON.parse(event.body || "{}");
+    if (!place) {
+      return {
+        statusCode: 400,
+        headers: commonHeaders,
+        body: JSON.stringify({ error: "Missing 'place'" }),
+      };
+    }
+
+    const url = GEO_URL + encodeURIComponent(place);
     const r = await fetch(url, {
-      headers: { 'User-Agent': 'astro-natal-clean/1.0 (Netlify Function)' }
+      headers: {
+        // Nominatim 強制要求提供 User-Agent
+        "User-Agent": "astro-natal-clean.netlify.app (Netlify Function)",
+      },
     });
     const arr = await r.json();
-    if (!Array.isArray(arr) || !arr.length) return resp(404, { error: 'Not found', detail: place });
-
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return {
+        statusCode: 404,
+        headers: commonHeaders,
+        body: JSON.stringify({ error: "Place not found" }),
+      };
+    }
     const best = arr[0];
-    return resp(200, {
-      lat: +best.lat, lon: +best.lon, display_name: best.display_name
-    });
-  } catch (e) {
-    return resp(500, { error: 'Geo error', detail: String(e) });
+    return {
+      statusCode: 200,
+      headers: commonHeaders,
+      body: JSON.stringify({
+        lat: parseFloat(best.lat),
+        lon: parseFloat(best.lon),
+        display_name: best.display_name,
+      }),
+    };
+  } catch (err) { 
+    return {
+      statusCode: 500,
+      headers: commonHeaders,
+      body: JSON.stringify({ error: "Geo upstream error", detail: String(err) }),
+    };
   }
-}
-
-function resp(statusCode, obj) {
-  return {
-    statusCode,
-    headers: { 'Content-Type': 'application/json; charset=utf-8' },
-    body: JSON.stringify(obj),
-  };
 }
