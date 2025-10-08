@@ -1,173 +1,318 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
+<!doctype html>
+<html lang="zh">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Astro Natal API</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Astro-Natal | FreeAstrologyAPI + Netlify</title>
   <style>
-    body { font-family: "Segoe UI", system-ui, Arial; margin: 24px; line-height: 1.6; color:#222; }
-    label { display: block; margin-top: 10px; font-weight: bold; }
-    input, select, button { font-size: 15px; padding: 6px 10px; border: 1px solid #ccc; border-radius: 4px; }
-    button { cursor: pointer; background:#0ea5e9; color:#fff; border:none; margin-top:6px; }
-    button:hover { background:#0284c7; }
-    table { border-collapse: collapse; margin-top: 12px; min-width: 700px; }
-    th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
-    th { background:#f2f2f2; }
-    pre { background:#111; color:#0f0; padding:12px; border-radius:6px; overflow:auto; }
-    .error { color:#f43; margin-top:10px; }
-    img { max-width: 100%; border:1px solid #ccc; border-radius:8px; margin-top:10px; display:block; }
-    .muted { color:#666; font-size:13px; }
+    :root {
+      --c1:#111827; --c2:#1f2937; --c3:#374151; --c4:#4b5563; --c5:#9ca3af; --c6:#e5e7eb; --brand:#7c3aed;
+      --ok:#16a34a; --warn:#ef4444;
+    }
+    html,body{margin:0;padding:0;background:linear-gradient(145deg,#0b1020,#151a2e);color:#e9eefc;font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,"Microsoft JhengHei",sans-serif}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 16px}
+    h1{font-size:26px;margin:0 0 8px}
+    .card{background:rgba(255,255,255,.05);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:18px;margin:14px 0}
+    .row{display:grid;grid-template-columns:repeat(12,1fr);gap:12px}
+    label{font-size:12px;color:#c9d2f3}
+    input,select,button,textarea{
+      width:100%;padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);
+      background:rgba(255,255,255,.08);color:#e9eefc;outline:none
+    }
+    input::placeholder{color:#b7c0e8}
+    button{cursor:pointer;border:1px solid rgba(255,255,255,.18);font-weight:600}
+    .btn{background:linear-gradient(135deg,#7c3aed,#4f46e5);transition:transform .08s ease}
+    .btn:hover{transform:translateY(-1px)}
+    .btn-ghost{background:rgba(255,255,255,.06)}
+    .muted{color:#aeb8df;font-size:12px}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border-bottom:1px dashed rgba(255,255,255,.16);padding:8px 10px;text-align:left}
+    th{color:#cdd6ff;font-weight:700}
+    code,pre{white-space:pre-wrap;word-break:break-word}
+    .ok{color:var(--ok)} .warn{color:var(--warn)}
+    .grid-6{grid-column:span 6} .grid-4{grid-column:span 4} .grid-3{grid-column:span 3} .grid-12{grid-column:span 12}
+    @media (max-width:900px){.grid-6,.grid-4,.grid-3{grid-column:span 12}}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:rgba(124,58,237,.18);border:1px solid rgba(124,58,237,.35);color:#e9e0ff;font-size:12px}
+    .hr{height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent);margin:12px 0}
+    img{max-width:100%;height:auto;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:#0f1326}
   </style>
 </head>
 <body>
-  <h1>Astro Natal API</h1>
+  <div class="wrap">
+    <h1>Astro-Natal <span class="badge">Netlify Functions + FreeAstrologyAPI</span></h1>
+    <div class="muted">部署網址：<a href="https://astro-natal-clean.netlify.app" target="_blank" rel="noopener">astro-natal-clean.netlify.app</a></div>
 
-  <label>出生日期</label>
-  <input id="date" type="date" value="1958-01-07">
+    <div class="card">
+      <div class="row">
+        <div class="grid-6">
+          <label>姓名（可選）</label>
+          <input id="name" placeholder="例如：Sophia Wang" />
+        </div>
+        <div class="grid-3">
+          <label>出生日期（必填）</label>
+          <input id="date" type="date" />
+        </div>
+        <div class="grid-3">
+          <label>出生時間（必填）</label>
+          <input id="time" type="time" />
+        </div>
 
-  <label>時間 (24h)</label>
-  <select id="hour"></select> :
-  <select id="minute"></select>
+        <div class="grid-4">
+          <label>語言 lang（必填）</label>
+          <select id="lang">
+            <option value="zh" selected>zh（中文）</option>
+            <option value="en">en（English）</option>
+            <option value="es">es（Español）</option>
+            <option value="fr">fr（Français）</option>
+            <option value="de">de（Deutsch）</option>
+            <option value="ja">ja（日本語）</option>
+            <option value="ko">ko（한국어）</option>
+            <option value="ru">ru（Русский）</option>
+            <option value="pt">pt（Português）</option>
+            <option value="it">it（Italiano）</option>
+          </select>
+        </div>
 
-  <label>時區 (UTC Offset)</label>
-  <input id="tz" type="number" step="1" value="8">
+        <div class="grid-4">
+          <label>宮位系統 house_system（必填）</label>
+          <select id="house_system">
+            <option value="placidus" selected>placidus（Placidus）</option>
+            <option value="whole_sign">whole_sign（Whole Sign）</option>
+            <option value="koch">koch（Koch）</option>
+            <option value="equal">equal（Equal）</option>
+            <option value="porphyry">porphyry（Porphyry）</option>
+            <option value="regiomontanus">regiomontanus（Regiomontanus）</option>
+            <option value="campanus">campanus（Campanus）</option>
+          </select>
+        </div>
 
-  <label>地名 (自動轉經緯度)</label>
-  <div style="display:flex; gap:8px;">
-    <input id="place" style="flex:1" value="Tainan, Taiwan">
-    <button id="btnGeo">查詢地名 → 經緯度</button>
+        <div class="grid-4">
+          <label>時區（IANA，例如 America/Chicago）</label>
+          <input id="timezone" placeholder="自填或留空由後端兜底" />
+        </div>
+
+        <div class="grid-9">
+          <label>出生地（城市/地名關鍵字）</label>
+          <input id="place" placeholder="例如：Chicago, IL, USA" />
+        </div>
+        <div class="grid-3" style="align-self:end">
+          <button class="btn-ghost" id="btnGeo">查經緯度</button>
+        </div>
+
+        <div class="grid-6">
+          <label>緯度 latitude（度）</label>
+          <input id="lat" placeholder="e.g. 41.8781" />
+        </div>
+        <div class="grid-6">
+          <label>經度 longitude（度）</label>
+          <input id="lon" placeholder="e.g. -87.6298" />
+        </div>
+
+        <div class="grid-12 hr"></div>
+
+        <div class="grid-4">
+          <button class="btn" id="btnPlanets">取得行星位置</button>
+        </div>
+        <div class="grid-4">
+          <button class="btn" id="btnWheel">產生星盤圖</button>
+        </div>
+        <div class="grid-4">
+          <button class="btn-ghost" id="btnClear">清空輸出</button>
+        </div>
+      </div>
+      <div id="hint" class="muted" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px">行星表格（Planets）</h3>
+      <div id="planets"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px">星盤圖（Natal Wheel）</h3>
+      <div id="wheel"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 10px">診斷訊息</h3>
+      <pre id="log" style="background:rgba(0,0,0,.25);padding:12px;border-radius:10px"></pre>
+    </div>
   </div>
-
-  <div style="display:flex; gap:8px; margin-top:6px;">
-    <div><label>緯度</label><input id="lat" type="number" step="0.0001" value="22.99123"></div>
-    <div><label>經度</label><input id="lon" type="number" step="0.0001" value="120.18498"></div>
-  </div>
-
-  <div style="margin-top:12px;">
-    <button id="btnPlanets">取得行星位置（表格）</button>
-    <button id="btnWheel" style="background:#2563eb;">產生星盤圖</button>
-    <button id="btnClear" style="background:#dc2626;">清空輸出</button>
-  </div>
-
-  <div id="errorBox" class="error" style="display:none;"></div>
-
-  <h3>行星位置表</h3>
-  <table id="planetTable">
-    <thead>
-      <tr><th>行星</th><th>星座</th><th>度數</th><th>逆行</th></tr>
-    </thead>
-    <tbody id="planetsTbody"></tbody>
-  </table>
-
-  <h3>星盤圖</h3>
-  <div class="muted">若成功產生，可右鍵另存圖片。</div>
-  <img id="wheelImg" alt="星盤" style="display:none">
 
   <script>
-    // 初始化時間下拉
-    const hourSel = document.getElementById('hour');
-    const minSel = document.getElementById('minute');
-    for (let i=0;i<24;i++) hourSel.add(new Option(i.toString().padStart(2,'0'),i));
-    for (let i=0;i<60;i++) minSel.add(new Option(i.toString().padStart(2,'0'),i));
-    hourSel.value=20; minSel.value=50;
-
-    const errBox = document.getElementById('errorBox');
-    const wheelImg = document.getElementById('wheelImg');
-    const tbody = document.getElementById('planetsTbody');
-
-    function showError(msg, detail){
-      errBox.style.display='block';
-      errBox.textContent = msg + (detail ? '：' + JSON.stringify(detail) : '');
-    }
-    function clearError(){ errBox.style.display='none'; errBox.textContent=''; }
-
-    // 查詢地名轉經緯度
-    document.getElementById('btnGeo').onclick = async ()=>{
-      clearError();
-      const place = document.getElementById('place').value.trim();
-      if(!place){ showError('請輸入地名'); return; }
-      try{
-        const res = await fetch('/.netlify/functions/freeastro-geo',{
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({place})
-        });
-        const data = await res.json();
-        if(!res.ok) throw data;
-        document.getElementById('lat').value=data.lat;
-        document.getElementById('lon').value=data.lon;
-        showError('已更新經緯度：' + data.display_name);
-      }catch(e){ showError('地名查詢錯誤', e); }
+    const $ = sel => document.querySelector(sel);
+    const el = {
+      name: $("#name"), date: $("#date"), time: $("#time"),
+      lang: $("#lang"), house_system: $("#house_system"), tz: $("#timezone"),
+      place: $("#place"), lat: $("#lat"), lon: $("#lon"),
+      btnGeo: $("#btnGeo"), btnPlanets: $("#btnPlanets"), btnWheel: $("#btnWheel"), btnClear: $("#btnClear"),
+      planets: $("#planets"), wheel: $("#wheel"), log: $("#log"), hint: $("#hint")
     };
 
-    // 共用：組成輸入 payload
-    function getInput(){
-      const [y,m,d] = document.getElementById('date').value.split('-').map(Number);
+    // 小提示
+    el.hint.innerText = "必填欄位：日期、時間、緯度、經度、lang、house_system。時區可留空，後端預設為 'UTC' 或使用 FREEASTRO_LANG_DEFAULT 作兜底。";
+
+    // 查地名 -> 經緯度（Nominatim）
+    el.btnGeo.addEventListener("click", async () => {
+      const q = (el.place.value || "").trim();
+      if (!q) return alert("請輸入地名");
+      try {
+        setLoading(el.btnGeo, true);
+        const langParam = encodeURIComponent(el.lang.value || "zh");
+        const r = await fetch(`/.netlify/functions/freeastro-geo?q=${encodeURIComponent(q)}&lang=${langParam}`);
+        const data = await r.json();
+        if (!Array.isArray(data) || data.length === 0) {
+          toast("找不到地點，請嘗試更多關鍵字", "warn");
+          return;
+        }
+        // 取第一筆
+        const best = data[0];
+        el.lat.value = best.lat;
+        el.lon.value = best.lon;
+        toast(`地點已設定：${best.display_name}`);
+        log(`Geo result:\n${JSON.stringify(best, null, 2)}`);
+      } catch (e) {
+        toast(`Geo 查詢失敗：${e.message}`, "warn");
+        logErr(e);
+      } finally {
+        setLoading(el.btnGeo, false);
+      }
+    });
+
+    el.btnPlanets.addEventListener("click", async () => {
+      const payload = buildPayload();
+      if (!payload) return;
+      try {
+        setLoading(el.btnPlanets, true);
+        const r = await fetch("/.netlify/functions/freeastro-planets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          toast(`Planets 失敗：${data.message || r.statusText}`, "warn");
+          log(`Planets error:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+        renderPlanets(data);
+        toast("行星位置取得成功");
+        log(`Planets:\n${JSON.stringify(data, null, 2)}`);
+      } catch (e) {
+        toast(`Planets 呼叫失敗：${e.message}`, "warn");
+        logErr(e);
+      } finally {
+        setLoading(el.btnPlanets, false);
+      }
+    });
+
+    el.btnWheel.addEventListener("click", async () => {
+      const payload = buildPayload();
+      if (!payload) return;
+      try {
+        setLoading(el.btnWheel, true);
+        const r = await fetch("/.netlify/functions/freeastro-wheel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        if (!r.ok) {
+          toast(`Wheel 失敗：${data.message || r.statusText}`, "warn");
+          log(`Wheel error:\n${JSON.stringify(data, null, 2)}`);
+          return;
+        }
+        if (data && data.base64) {
+          el.wheel.innerHTML = `<img alt="natal wheel" src="data:image/png;base64,${data.base64}">`;
+          toast("星盤圖產生成功");
+        } else {
+          toast("未收到 base64 圖片", "warn");
+        }
+        log(`Wheel:\n${JSON.stringify(data, null, 2)}`);
+      } catch (e) {
+        toast(`Wheel 呼叫失敗：${e.message}`, "warn");
+        logErr(e);
+      } finally {
+        setLoading(el.btnWheel, false);
+      }
+    });
+
+    el.btnClear.addEventListener("click", () => {
+      el.planets.innerHTML = "";
+      el.wheel.innerHTML = "";
+      el.log.textContent = "";
+      toast("已清空輸出");
+    });
+
+    function buildPayload() {
+      const date = (el.date.value || "").trim();
+      const time = (el.time.value || "").trim();
+      const lang = (el.lang.value || "zh").trim();
+      const house_system = (el.house_system.value || "placidus").trim();
+      const latitude = parseFloat(el.lat.value);
+      const longitude = parseFloat(el.lon.value);
+      let timezone = (el.tz.value || "").trim();
+
+      if (!date || !time) { alert("請填寫日期與時間"); return null; }
+      if (Number.isNaN(latitude) || Number.isNaN(longitude)) { alert("請先填妥經緯度（或用地名查詢）"); return null; }
+      if (!lang) { alert("請選擇語言 lang"); return null; }
+      if (!house_system) { alert("請選擇宮位系統 house_system"); return null; }
+      if (!timezone) timezone = "UTC"; // 後端也會兜底
+
       return {
-        year:y, month:m, day:d,
-        hours:+hourSel.value, minutes:+minSel.value,
-        latitude:+document.getElementById('lat').value,
-        longitude:+document.getElementById('lon').value,
-        tz:+document.getElementById('tz').value,
-        lang:'zh'
+        name: (el.name.value || "").trim(),
+        date, time, timezone,
+        latitude, longitude,
+        lang, house_system
       };
     }
 
-    // 清空輸出
-    document.getElementById('btnClear').onclick = ()=>{
-      clearError(); tbody.innerHTML=''; wheelImg.style.display='none';
-    };
+    function renderPlanets(data) {
+      // 嘗試從常見結構取資料；若不同，直接把物件扁平化
+      const arr = Array.isArray(data?.planets) ? data.planets
+                : Array.isArray(data) ? data
+                : Array.isArray(data?.data) ? data.data
+                : [];
 
-    // 取得行星位置（JSON）
-    document.getElementById('btnPlanets').onclick = async ()=>{
-      clearError();
-      const input = getInput();
+      if (arr.length === 0) {
+        el.planets.innerHTML = `<div class="muted">未偵測到標準 planets 陣列，以下為原始結果：</div><pre>${escapeHTML(JSON.stringify(data,null,2))}</pre>`;
+        return;
+      }
+
+      let html = `<table><thead><tr>
+        <th>行星</th><th>星座</th><th>度數</th><th>宮位</th><th>赤經/赤緯(若有)</th>
+      </tr></thead><tbody>`;
+      for (const p of arr) {
+        html += `<tr>
+          <td>${escapeHTML(p.name ?? p.planet ?? "")}</td>
+          <td>${escapeHTML(p.sign ?? "")}</td>
+          <td>${escapeHTML(String(p.degree ?? p.deg ?? ""))}</td>
+          <td>${escapeHTML(String(p.house ?? ""))}</td>
+          <td>${escapeHTML([p.ra, p.dec].filter(Boolean).join(" / "))}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+      el.planets.innerHTML = html;
+    }
+
+    function setLoading(btn, on) {
+      btn.disabled = !!on;
+      btn.textContent = on ? "處理中..." : btn.getAttribute("id")==="btnGeo"?"查經緯度":btn.getAttribute("id")==="btnPlanets"?"取得行星位置":btn.getAttribute("id")==="btnWheel"?"產生星盤圖":"清空輸出";
+    }
+    function toast(msg, level="ok"){ el.hint.innerHTML = `<span class="${level==='ok'?'ok':'warn'}">${escapeHTML(msg)}</span>`; }
+    function log(s){ el.log.textContent = s; }
+    function logErr(e){ el.log.textContent = (e && e.stack) ? e.stack : String(e); }
+    function escapeHTML(s){ return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])) }
+
+    // 可選：根據瀏覽器語言設置 lang 預設；不覆蓋手動選擇
+    (function initLang(){
       try{
-        const res = await fetch('/.netlify/functions/freeastro-planets',{
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(input)
-        });
-        const data = await res.json();
-        if(!res.ok){ showError('行星資料錯誤', data); return; }
-
-        const list = data.output || data.planets || [];
-        const zhName = {
-          'Sun':'太陽','Moon':'月亮','Mercury':'水星','Venus':'金星','Mars':'火星',
-          'Jupiter':'木星','Saturn':'土星','Uranus':'天王星','Neptune':'海王星','Pluto':'冥王星',
-          'Ascendant':'上昇點','Midheaven':'天頂'
-        };
-        tbody.innerHTML='';
-        list.forEach(p=>{
-          const tr=document.createElement('tr');
-          const name=zhName[p.planet?.en]||p.planet?.en||'';
-          const sign=p.zodiac_sign?.name?.zh||p.zodiac_sign?.name?.en||'';
-          const deg=(p.normDegree??p.fullDegree??0).toFixed(2);
-          const retro=(p.isRetro==='True'||p.isRetro===true)?'是':'否';
-          tr.innerHTML=`<td>${name}</td><td>${sign}</td><td>${deg}°</td><td>${retro}</td>`;
-          tbody.appendChild(tr);
-        });
-      }catch(e){ showError('行星資料錯誤', e); }
-    };
-
-    // 產生星盤圖
-    document.getElementById('btnWheel').onclick = async ()=>{
-      clearError();
-      const input = getInput();
-      try{
-        const res = await fetch('/.netlify/functions/freeastro-wheel',{
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body:JSON.stringify(input)
-        });
-        if(!res.ok){
-          const text = await res.text();
-          showError('產生星盤錯誤 ' + res.status, text);
-          wheelImg.style.display='none';
-          return;
+        const nav = (navigator.language || "zh").slice(0,2).toLowerCase();
+        if (["zh","en","es","fr","de","ja","ko","ru","pt","it"].includes(nav)) {
+          if (!el.lang.value) el.lang.value = nav;
         }
-        const blob = await res.blob();
-        wheelImg.src = URL.createObjectURL(blob);
-        wheelImg.style.display='block';
-      }catch(e){ showError('星盤載入失敗', e); }
-    };
+      }catch{}
+    })();
   </script>
 </body>
 </html>

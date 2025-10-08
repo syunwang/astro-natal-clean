@@ -1,129 +1,123 @@
-// freeastro-wheel.js
-// 代理 FreeAstrology API 星盤圖端點，回傳圖片（以 base64 轉回給前端）
+// netlify/functions/freeastro-wheel.js
+// Robust + Debug version for FreeAstrologyAPI /western/wheel
 
-const BASE = process.env.FREEASTRO_BASE || "https://json.freeastrologyapi.com";
-const WHEEL_URL =
-  process.env.FREEASTRO_URL_WHEEL || `${BASE}/western/natal-wheel-chart`;
-
-const API_KEY = process.env.FREEASTRO_API_KEY || "";
-const AUTH_STYLE = (process.env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
-
-const commonHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-function buildUpstream(url) {
-  const headers = { "Content-Type": "application/json" };
-  let finalUrl = url;
-
-  if (!API_KEY) return { url: finalUrl, headers };
-
-  switch (AUTH_STYLE) {
-    case "x-api-key":
-      headers["x-api-key"] = API_KEY;
-      break;
-    case "apikey":
-    case "api-key":
-      headers["apikey"] = API_KEY;
-      break;
-    case "bearer":
-      headers["Authorization"] = `Bearer ${API_KEY}`;
-      break;
-    case "auth-raw":
-      headers["Authorization"] = API_KEY;
-      break;
-    case "query:api_key":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "api_key=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:apikey":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "apikey=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:key":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:token":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:auth":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "auth=" + encodeURIComponent(API_KEY);
-      break;
-    default:
-      headers["x-api-key"] = API_KEY;
-  }
-  return { url: finalUrl, headers };
-}
-
-function validateInput(obj) {
-  const need = ["year", "month", "day", "hours", "minutes", "latitude", "longitude", "tz"];
-  for (const k of need) {
-    if (obj[k] === undefined || obj[k] === null || obj[k] === "") return false;
-  }
-  return true;
-}
-
-function toBase64(ab) {
-  const uint8 = new Uint8Array(ab);
-  let str = "";
-  for (let i = 0; i < uint8.length; i++) str += String.fromCharCode(uint8[i]);
-  return Buffer.from(str, "binary").toString("base64");
-}
-
-export async function handler(event) {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: commonHeaders,
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
-  }
-
+exports.handler = async (event) => {
   try {
-    const input = JSON.parse(event.body || "{}");
-    if (!validateInput(input)) {
-      return {
-        statusCode: 400,
-        headers: commonHeaders,
-        body: JSON.stringify({ message: "Invalid request body" }),
-      };
-    }
+    if (event.httpMethod !== 'POST')
+      return json(405, { error: 'method_not_allowed' });
 
-    const { url, headers } = buildUpstream(WHEEL_URL);
-    const r = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(input),
+    const input = safeJson(event.body);
+
+    // 相容多種前端欄位格式
+    const rawDate = (input.date || '').replace(/\//g, '-');
+    const [y, m, d] = rawDate.split('-').map(Number);
+    const [hh, mm] = String(input.time || '').split(':').map(Number);
+    const lat = pickNumber(input.latitude, input.lat);
+    const lon = pickNumber(input.longitude, input.lon);
+
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm))
+      return json(400, { error: 'invalid_datetime', message: 'date/time required: YYYY-MM-DD & HH:MM' });
+    if (!isFinite(lat) || !isFinite(lon))
+      return json(400, { error: 'invalid_coords', message: 'latitude/longitude required (numbers)' });
+
+    const tzStr   = normTzString(input.timezone, input.utc_offset);   // e.g. +08:00
+    const tzHours = normTzHours(input.timezone, input.utc_offset);    // e.g. 8
+    const hs = String(input.house_system || 'placidus').trim();
+    const la = String(input.lang || 'zh').trim();
+
+    const { url, headers } = makeUpstream();
+
+    // --- Try A ---
+    const bodyA = {
+      year: y, month: m, day: d,
+      hour: hh, minute: mm,
+      latitude: lat, longitude: lon,
+      timezone: tzStr,
+      house_system: hs,
+      lang: la
+    };
+    let r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyA) });
+    if (r.ok) return pass(r);
+
+    // --- Try B ---
+    const bodyB = {
+      date: `${y}-${pad(m)}-${pad(d)}`,
+      time: `${pad(hh)}:${pad(mm)}`,
+      latitude: lat, longitude: lon,
+      utc_offset: tzHours,
+      house_system: hs,
+      lang: la
+    };
+    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyB) });
+    if (r.ok) return pass(r);
+
+    // --- Try C ---
+    const bodyC = {
+      datetime: `${y}-${pad(m)}-${pad(d)}T${pad(hh)}:${pad(mm)}:00`,
+      lat, lon,
+      tz: tzHours,
+      house_system: hs,
+      lang: la
+    };
+    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyC) });
+    if (r.ok) return pass(r);
+
+    // --- All Failed ---
+    const text = await r.text();
+    return json(r.status, {
+      error: 'upstream_400',
+      url,
+      tried_bodies: process.env.FREEASTRO_DEBUG ? { bodyA, bodyB, bodyC } : undefined,
+      upstream_text: text
     });
 
-    if (!r.ok) {
-      const text = await r.text().catch(() => "");
-      return {
-        statusCode: r.status,
-        headers: commonHeaders,
-        body: JSON.stringify({
-          error: "Upstream error",
-          status: r.status,
-          detail: text || "fetch failed",
-          url,
-        }),
-      };
-    }
-
-    const ct = r.headers.get("content-type") || "image/png";
-    const ab = await r.arrayBuffer();
-    const b64 = toBase64(ab);
-
-    return {
-      statusCode: 200,
-      isBase64Encoded: true,
-      headers: { ...commonHeaders, "Content-Type": ct },
-      body: b64,
-    };
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers: commonHeaders,
-      body: JSON.stringify({ error: "Wheel upstream error", detail: String(err) }),
-    };
+  } catch (e) {
+    return json(502, { error: 'function_error', detail: String(e) });
   }
+};
+
+/* ---------------- Helpers ---------------- */
+function safeJson(x){ try{ return JSON.parse(x || '{}'); }catch{ return {}; } }
+function json(statusCode, obj){ return { statusCode, headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj) }; }
+function pass(r){ return r.text().then(text => ({ statusCode: r.status, headers:{'Content-Type': r.headers.get('content-type') || 'application/json'}, body: text })); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function pickNumber(...vals){
+  for (const v of vals) {
+    if (v === 0 || v === '0') return 0;
+    if (v !== undefined && v !== null && String(v).trim() !== '') return parseFloat(v);
+  }
+  return NaN;
+}
+function normTzString(timezone, utc_offset){
+  if (timezone && String(timezone).trim()) return String(timezone).trim(); // IANA or +HH:MM
+  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') {
+    const n = parseFloat(utc_offset);
+    const sign = n >= 0 ? '+' : '-';
+    const abs = Math.abs(n);
+    const h = String(Math.floor(abs)).padStart(2, '0');
+    const m = String(Math.round((abs - Math.floor(abs)) * 60)).padStart(2, '0');
+    return `${sign}${h}:${m}`;
+  }
+  return 'UTC';
+}
+function normTzHours(timezone, utc_offset){
+  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') return parseFloat(utc_offset);
+  if (/^[+-]\d{2}:\d{2}$/.test(String(timezone || ''))) {
+    const sign = String(timezone)[0] === '-' ? -1 : 1;
+    const [h, m] = String(timezone).slice(1).split(':').map(Number);
+    return sign * (h + (m || 0)/60);
+  }
+  return 0; // default UTC
+}
+function makeUpstream(){
+  const url = (process.env.FREEASTRO_URL_WHEEL || '').trim() ||
+              ((process.env.FREEASTRO_BASE || '').replace(/\/+$/,'') + '/western/wheel');
+  if (!url.startsWith('http')) throw new Error('config_error: FREEASTRO_URL_WHEEL or FREEASTRO_BASE not set');
+
+  const key = process.env.FREEASTRO_API_KEY || '';
+  const style = (process.env.FREEASTRO_AUTH_STYLE || 'x-api-key').toLowerCase();
+  const headers = { 'Content-Type': 'application/json' };
+  if (style === 'authorization') headers['Authorization'] = `Bearer ${key}`;
+  else headers[process.env.FREEASTRO_AUTH_STYLE || 'x-api-key'] = key;
+  return { url, headers };
 }

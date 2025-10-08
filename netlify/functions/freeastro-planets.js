@@ -1,135 +1,128 @@
-// freeastro-planets.js
-// 代理 FreeAstrology API planets 端點（使用全域 fetch，勿引入 node-fetch）
+// netlify/functions/freeastro-planets.js
+// Robust + Debug version for FreeAstrologyAPI /western/planets
 
-const BASE = process.env.FREEASTRO_BASE || "https://json.freeastrologyapi.com";
-const PLANETS_URL =
-  process.env.FREEASTRO_URL_PLANETS || `${BASE}/western/planets`;
-
-const API_KEY = process.env.FREEASTRO_API_KEY || "";
-const AUTH_STYLE = (process.env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
-
-const commonHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "Content-Type",
-};
-
-/** 根據 AUTH_STYLE 建立上游請求的 URL 與 headers */
-function buildUpstream(url) {
-  const headers = { "Content-Type": "application/json" };
-  let finalUrl = url;
-
-  if (!API_KEY) return { url: finalUrl, headers }; // 無金鑰就只回傳預設 headers
-
-  switch (AUTH_STYLE) {
-    case "x-api-key":
-    case "x-api-key-lc":
-    case "x-api-key-uc":
-      headers["x-api-key"] = API_KEY;
-      break;
-    case "x-api-key-cap":
-    case "x-api-key-title":
-    case "x-api-key-proper":
-    case "x-api-key-alt":
-    case "x-api-key-alt2":
-    case "x-api-key-alt3":
-      headers["X-API-Key"] = API_KEY;
-      break;
-    case "apikey":
-    case "api-key":
-      headers["apikey"] = API_KEY;
-      break;
-    case "bearer":
-      headers["Authorization"] = `Bearer ${API_KEY}`;
-      break;
-    case "auth-raw":
-      headers["Authorization"] = API_KEY;
-      break;
-    case "query:api_key":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "api_key=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:apikey":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "apikey=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:key":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:token":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(API_KEY);
-      break;
-    case "query:auth":
-      finalUrl += (finalUrl.includes("?") ? "&" : "?") + "auth=" + encodeURIComponent(API_KEY);
-      break;
-    default:
-      // 預設使用 x-api-key
-      headers["x-api-key"] = API_KEY;
-  }
-  return { url: finalUrl, headers };
-}
-
-/** 簡單的 body 驗證（避免 upstream 回 400: Invalid request body） */
-function validateInput(obj) {
-  const need = ["year", "month", "day", "hours", "minutes", "latitude", "longitude", "tz"];
-  for (const k of need) {
-    if (obj[k] === undefined || obj[k] === null || obj[k] === "") return false;
-  }
-  return true;
-}
-
-export async function handler(event) {
-  if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: commonHeaders,
-      body: JSON.stringify({ error: "Method not allowed" }),
-    };
-  }
-
+exports.handler = async (event) => {
   try {
-    const input = JSON.parse(event.body || "{}");
-    if (!validateInput(input)) {
-      return {
-        statusCode: 400,
-        headers: commonHeaders,
-        body: JSON.stringify({ error: "Invalid request body (missing fields)" }),
-      };
-    }
+    if (event.httpMethod !== 'POST') return json(405, { error: 'method_not_allowed' });
 
-    const { url, headers } = buildUpstream(PLANETS_URL);
-    const r = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(input),
+    const input = safeJson(event.body);
+    // 前端可能提供的欄位（全部相容）：
+    // date: 'YYYY-MM-DD' 或 'YYYY/MM/DD'
+    // time: 'HH:MM'
+    // timezone 或 utc_offset（數字/字串）
+    // latitude/lat, longitude/lon
+    // lang（可省略）, house_system（可省略）
+
+    const rawDate = (input.date || '').replace(/\//g, '-');
+    const [y, m, d] = rawDate.split('-').map(Number);
+    const [hh, mm] = String(input.time || '').split(':').map(Number);
+    const lat = pickNumber(input.latitude, input.lat);
+    const lon = pickNumber(input.longitude, input.lon);
+
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm))
+      return json(400, { error: 'invalid_datetime', message: 'date/time required: YYYY-MM-DD & HH:MM' });
+    if (!isFinite(lat) || !isFinite(lon))
+      return json(400, { error: 'invalid_coords', message: 'latitude/longitude required (numbers)' });
+
+    const tzStr   = normTzString(input.timezone, input.utc_offset);   // 例如 +08:00 或 IANA
+    const tzHours = normTzHours(input.timezone, input.utc_offset);    // 例如 8（數字）
+    const hs = String(input.house_system || 'placidus').trim();
+    const la = String(input.lang || 'zh').trim();
+
+    const { url, headers } = makeUpstream();
+
+    // 嘗試 A：year/month/day + hour/minute + tz 字串
+    const bodyA = {
+      year: y, month: m, day: d,
+      hour: hh, minute: mm,
+      latitude: lat, longitude: lon,
+      timezone: tzStr,
+      house_system: hs,
+      lang: la
+    };
+    let r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyA) });
+    if (r.ok) return pass(r);
+
+    // 嘗試 B：date/time + utc_offset（小時，數字）
+    const bodyB = {
+      date: `${y}-${pad(m)}-${pad(d)}`,
+      time: `${pad(hh)}:${pad(mm)}`,
+      latitude: lat, longitude: lon,
+      utc_offset: tzHours,
+      house_system: hs,
+      lang: la
+    };
+    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyB) });
+    if (r.ok) return pass(r);
+
+    // 嘗試 C：ISO 字串 + lat/lon + tzHours
+    const bodyC = {
+      datetime: `${y}-${pad(m)}-${pad(d)}T${pad(hh)}:${pad(mm)}:00`,
+      lat, lon,
+      tz: tzHours,
+      house_system: hs,
+      lang: la
+    };
+    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyC) });
+    if (r.ok) return pass(r);
+
+    // 都失敗 → 回傳 debug
+    const text = await r.text();
+    return json(r.status, {
+      error: 'upstream_400',
+      url,
+      tried_bodies: process.env.FREEASTRO_DEBUG ? { bodyA, bodyB, bodyC } : undefined,
+      upstream_text: text
     });
 
-    const text = await r.text();
-    let json;
-    try { json = JSON.parse(text); } catch { json = { raw: text }; }
-
-    if (!r.ok) {
-      return {
-        statusCode: r.status,
-        headers: commonHeaders,
-        body: JSON.stringify({
-          error: "Upstream error",
-          status: r.status,
-          detail: json,
-          url,
-        }),
-      };
-    }
-
-    // 統一輸出格式：{ statusCode: 200, output: [...] }
-    const output = json?.output || json?.data || json;
-    return {
-      statusCode: 200,
-      headers: { ...commonHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ statusCode: 200, output }),
-    };
-  } catch (err) {
-    return {
-      statusCode: 500,
-      headers: commonHeaders,
-      body: JSON.stringify({ error: "Planets upstream error", detail: String(err) }),
-    };
+  } catch (e) {
+    return json(502, { error: 'function_error', detail: String(e) });
   }
+};
+
+/* ---------------- helpers ---------------- */
+function safeJson(x){ try{ return JSON.parse(x || '{}'); }catch{ return {}; } }
+function json(statusCode, obj){ return { statusCode, headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj) }; }
+function pass(r){ return r.text().then(text => ({ statusCode: r.status, headers:{'Content-Type': r.headers.get('content-type') || 'application/json'}, body: text })); }
+function pad(n){ return String(n).padStart(2,'0'); }
+function pickNumber(...vals){
+  for (const v of vals) {
+    if (v === 0 || v === '0') return 0;
+    if (v !== undefined && v !== null && String(v).trim() !== '') return parseFloat(v);
+  }
+  return NaN;
+}
+function normTzString(timezone, utc_offset){
+  if (timezone && String(timezone).trim()) return String(timezone).trim(); // IANA or +HH:MM
+  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') {
+    const n = parseFloat(utc_offset);
+    const sign = n >= 0 ? '+' : '-';
+    const abs = Math.abs(n);
+    const h = String(Math.floor(abs)).padStart(2, '0');
+    const m = String(Math.round((abs - Math.floor(abs)) * 60)).padStart(2, '0');
+    return `${sign}${h}:${m}`;
+  }
+  return 'UTC';
+}
+function normTzHours(timezone, utc_offset){
+  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') return parseFloat(utc_offset);
+  // 若給了 '+08:00' 這種，轉成 8
+  if (/^[+-]\d{2}:\d{2}$/.test(String(timezone || ''))) {
+    const sign = String(timezone)[0] === '-' ? -1 : 1;
+    const [h, m] = String(timezone).slice(1).split(':').map(Number);
+    return sign * (h + (m || 0)/60);
+  }
+  return 0; // 預設 UTC
+}
+function makeUpstream(){
+  const url = (process.env.FREEASTRO_URL_PLANETS || '').trim() ||
+              ((process.env.FREEASTRO_BASE || '').replace(/\/+$/,'') + '/western/planets');
+  if (!url.startsWith('http')) throw new Error('config_error: FREEASTRO_URL_PLANETS or FREEASTRO_BASE not set');
+
+  const key = process.env.FREEASTRO_API_KEY || '';
+  const style = (process.env.FREEASTRO_AUTH_STYLE || 'x-api-key').toLowerCase();
+  const headers = { 'Content-Type': 'application/json' };
+  if (style === 'authorization') headers['Authorization'] = `Bearer ${key}`;
+  else headers[process.env.FREEASTRO_AUTH_STYLE || 'x-api-key'] = key;
+  return { url, headers };
 }
