@@ -1,128 +1,141 @@
-// netlify/functions/freeastro-planets.js
-// Robust + Debug version for FreeAstrologyAPI /western/planets
+// --- lightweight in-memory rate gate (per IP) ---
+const ipGate = new Map();
+const WINDOW_MS = 1000;   // 每個 IP/使用者 至少間隔 1 秒
+const MAX_PARALLEL = 1;   // 每個 IP 同時最多 1 個請求
 
-exports.handler = async (event) => {
-  try {
-    if (event.httpMethod !== 'POST') return json(405, { error: 'method_not_allowed' });
+async function gate(event) {
+  // 在 Netlify 可取 x-forwarded-for，退而求其次 event.ip 或 default
+  const ip = (event.headers && (event.headers['x-forwarded-for'] || event.headers['client-ip'])) || 'default';
+  const info = ipGate.get(ip) || { running: 0, last: 0 };
+  const now = Date.now();
 
-    const input = safeJson(event.body);
-    // 前端可能提供的欄位（全部相容）：
-    // date: 'YYYY-MM-DD' 或 'YYYY/MM/DD'
-    // time: 'HH:MM'
-    // timezone 或 utc_offset（數字/字串）
-    // latitude/lat, longitude/lon
-    // lang（可省略）, house_system（可省略）
-
-    const rawDate = (input.date || '').replace(/\//g, '-');
-    const [y, m, d] = rawDate.split('-').map(Number);
-    const [hh, mm] = String(input.time || '').split(':').map(Number);
-    const lat = pickNumber(input.latitude, input.lat);
-    const lon = pickNumber(input.longitude, input.lon);
-
-    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm))
-      return json(400, { error: 'invalid_datetime', message: 'date/time required: YYYY-MM-DD & HH:MM' });
-    if (!isFinite(lat) || !isFinite(lon))
-      return json(400, { error: 'invalid_coords', message: 'latitude/longitude required (numbers)' });
-
-    const tzStr   = normTzString(input.timezone, input.utc_offset);   // 例如 +08:00 或 IANA
-    const tzHours = normTzHours(input.timezone, input.utc_offset);    // 例如 8（數字）
-    const hs = String(input.house_system || 'placidus').trim();
-    const la = String(input.lang || 'zh').trim();
-
-    const { url, headers } = makeUpstream();
-
-    // 嘗試 A：year/month/day + hour/minute + tz 字串
-    const bodyA = {
-      year: y, month: m, day: d,
-      hour: hh, minute: mm,
-      latitude: lat, longitude: lon,
-      timezone: tzStr,
-      house_system: hs,
-      lang: la
-    };
-    let r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyA) });
-    if (r.ok) return pass(r);
-
-    // 嘗試 B：date/time + utc_offset（小時，數字）
-    const bodyB = {
-      date: `${y}-${pad(m)}-${pad(d)}`,
-      time: `${pad(hh)}:${pad(mm)}`,
-      latitude: lat, longitude: lon,
-      utc_offset: tzHours,
-      house_system: hs,
-      lang: la
-    };
-    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyB) });
-    if (r.ok) return pass(r);
-
-    // 嘗試 C：ISO 字串 + lat/lon + tzHours
-    const bodyC = {
-      datetime: `${y}-${pad(m)}-${pad(d)}T${pad(hh)}:${pad(mm)}:00`,
-      lat, lon,
-      tz: tzHours,
-      house_system: hs,
-      lang: la
-    };
-    r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(bodyC) });
-    if (r.ok) return pass(r);
-
-    // 都失敗 → 回傳 debug
-    const text = await r.text();
-    return json(r.status, {
-      error: 'upstream_400',
-      url,
-      tried_bodies: process.env.FREEASTRO_DEBUG ? { bodyA, bodyB, bodyC } : undefined,
-      upstream_text: text
-    });
-
-  } catch (e) {
-    return json(502, { error: 'function_error', detail: String(e) });
+  if (info.running >= MAX_PARALLEL || now - info.last < WINDOW_MS) {
+    // 太頻繁：回 429（前端會做退避重試）
+    return { block: true };
   }
-};
+  info.running++;
+  info.last = now;
+  ipGate.set(ip, info);
 
-/* ---------------- helpers ---------------- */
-function safeJson(x){ try{ return JSON.parse(x || '{}'); }catch{ return {}; } }
-function json(statusCode, obj){ return { statusCode, headers:{'Content-Type':'application/json'}, body: JSON.stringify(obj) }; }
-function pass(r){ return r.text().then(text => ({ statusCode: r.status, headers:{'Content-Type': r.headers.get('content-type') || 'application/json'}, body: text })); }
-function pad(n){ return String(n).padStart(2,'0'); }
-function pickNumber(...vals){
-  for (const v of vals) {
-    if (v === 0 || v === '0') return 0;
-    if (v !== undefined && v !== null && String(v).trim() !== '') return parseFloat(v);
+  return {
+    block: false,
+    done() {
+      const cur = ipGate.get(ip) || info;
+      cur.running = Math.max(0, cur.running - 1);
+      ipGate.set(ip, cur);
+    }
+  };
+}
+const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
+
+function json(status, obj) {
+  return { statusCode: status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) };
+}
+
+function safeJson(s) { try { return JSON.parse(s); } catch { return {}; } }
+
+function pickNumber(...cands) {
+  for (const c of cands) {
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
   }
   return NaN;
 }
-function normTzString(timezone, utc_offset){
-  if (timezone && String(timezone).trim()) return String(timezone).trim(); // IANA or +HH:MM
-  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') {
-    const n = parseFloat(utc_offset);
-    const sign = n >= 0 ? '+' : '-';
-    const abs = Math.abs(n);
-    const h = String(Math.floor(abs)).padStart(2, '0');
-    const m = String(Math.round((abs - Math.floor(abs)) * 60)).padStart(2, '0');
-    return `${sign}${h}:${m}`;
-  }
-  return 'UTC';
-}
-function normTzHours(timezone, utc_offset){
-  if (utc_offset !== undefined && utc_offset !== null && String(utc_offset).trim() !== '') return parseFloat(utc_offset);
-  // 若給了 '+08:00' 這種，轉成 8
-  if (/^[+-]\d{2}:\d{2}$/.test(String(timezone || ''))) {
-    const sign = String(timezone)[0] === '-' ? -1 : 1;
-    const [h, m] = String(timezone).slice(1).split(':').map(Number);
-    return sign * (h + (m || 0)/60);
-  }
-  return 0; // 預設 UTC
-}
-function makeUpstream(){
-  const url = (process.env.FREEASTRO_URL_PLANETS || '').trim() ||
-              ((process.env.FREEASTRO_BASE || '').replace(/\/+$/,'') + '/western/planets');
-  if (!url.startsWith('http')) throw new Error('config_error: FREEASTRO_URL_PLANETS or FREEASTRO_BASE not set');
 
-  const key = process.env.FREEASTRO_API_KEY || '';
-  const style = (process.env.FREEASTRO_AUTH_STYLE || 'x-api-key').toLowerCase();
-  const headers = { 'Content-Type': 'application/json' };
-  if (style === 'authorization') headers['Authorization'] = `Bearer ${key}`;
-  else headers[process.env.FREEASTRO_AUTH_STYLE || 'x-api-key'] = key;
+function pad(n) { return String(n).padStart(2, '0'); }
+
+// Normalize input timezone to tzString (+HH:MM or IANA) and numeric utc_offset (hours) if available
+function normalizeTz(value, fallbackHours) {
+  const out = { tzString: "UTC", tzHours: 0 };
+  if (value == null || value === "") {
+    if (Number.isFinite(fallbackHours)) {
+      const sign = fallbackHours >= 0 ? "+" : "-";
+      const abs = Math.abs(fallbackHours);
+      const hh = Math.floor(abs);
+      const mm = Math.round((abs - hh) * 60);
+      out.tzString = `${sign}${pad(hh)}:${pad(mm)}`;
+      out.tzHours = fallbackHours;
+    }
+    return out;
+  }
+  const s = String(value).trim();
+  // numeric like "8"
+  if (/^[+-]?\d+(\.\d+)?$/.test(s)) {
+    const h = parseFloat(s);
+    const sign = h >= 0 ? "+" : "-";
+    const abs = Math.abs(h);
+    const hh = Math.floor(abs);
+    const mm = Math.round((abs - hh) * 60);
+    out.tzString = `${sign}${pad(hh)}:${pad(mm)}`;
+    out.tzHours = h;
+    return out;
+  }
+  // +08:00
+  if (/^[+-]\d{2}:\d{2}$/.test(s)) {
+    const hh = parseInt(s.slice(1, 3), 10);
+    const mm = parseInt(s.slice(4, 6), 10);
+    const sign = s[0] === "-" ? -1 : 1;
+    out.tzString = s;
+    out.tzHours = sign * (hh + mm/60);
+    return out;
+  }
+  // IANA
+  out.tzString = s;
+  out.tzHours = Number.isFinite(fallbackHours) ? fallbackHours : undefined;
+  return out;
+}
+
+function makeUpstream() {
+  const url = (process.env.FREEASTRO_URL_PLANETS || "").trim() ||
+              ((process.env.FREEASTRO_BASE || "").replace(/[\/\s]+$/,'') + "/western/planets");
+  if (!/^https?:\/\//i.test(url)) throw new Error("config_error: FREEASTRO_URL_PLANETS or FREEASTRO_BASE not set");
+  const key = process.env.FREEASTRO_API_KEY || "";
+  const style = (process.env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
+  const headers = { "Content-Type": "application/json" };
+  if (key) {
+    if (style === "bearer") headers["Authorization"] = `Bearer ${key}`;
+    else headers["x-api-key"] = key;
+  }
   return { url, headers };
 }
+
+exports.handler = async (event) => {
+  try {
+    if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
+    const input = safeJson(event.body);
+    const rawDate = (input.date || "").replace(/[\/.]/g, "-");
+    const [y, m, d] = rawDate.split("-").map(Number);
+    const [hh, mm] = String(input.time || "").split(":").map(Number);
+    const lat = pickNumber(input.latitude, input.lat);
+    const lon = pickNumber(input.longitude, input.lon);
+    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) {
+      return json(400, { error: "invalid_datetime", message: "date/time required: YYYY-MM-DD / HH:MM" });
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return json(400, { error: "invalid_coords", message: "latitude/longitude required (numbers)" });
+    }
+
+    const { tzString, tzHours } = normalizeTz(input.timezone, input.utc_offset);
+    const body = {
+      date: `${y}-${pad(m)}-${pad(d)}`,
+      time: `${pad(hh)}:${pad(mm)}`,
+      latitude: lat,
+      longitude: lon,
+      timezone: tzString,
+      utc_offset: tzHours ?? 0,
+      house_system: String(input.house_system || "placidus"),
+      lang: String(input.lang || "zh")
+    };
+
+    const { url, headers } = makeUpstream();
+    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
+    if (r.ok) {
+      const data = await r.json();
+      return json(200, data);
+    }
+    const text = await r.text();
+    return json(r.status, { error: "upstream", status: r.status, detail: text });
+  } catch (e) {
+    return json(500, { error: "server", message: String(e && e.message || e) });
+  }
+};

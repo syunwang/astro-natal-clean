@@ -1,7 +1,11 @@
-
-  {
+{
   "name": "astro-natal-clean",
   "private": true,
-  "type": "module",
-  "engines": { "node": ">=18" }
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
 }

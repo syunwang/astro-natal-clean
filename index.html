@@ -28,7 +28,6 @@
     table{width:100%;border-collapse:collapse;margin-top:10px}
     th,td{border-bottom:1px dashed rgba(255,255,255,.16);padding:8px 10px;text-align:left}
     th{color:#cdd6ff;font-weight:700}
-    code,pre{white-space:pre-wrap;word-break:break-word}
     .ok{color:var(--ok)} .warn{color:var(--warn)}
     .grid-6{grid-column:span 6} .grid-4{grid-column:span 4} .grid-3{grid-column:span 3} .grid-12{grid-column:span 12}
     @media (max-width:900px){.grid-6,.grid-4,.grid-3{grid-column:span 12}}
@@ -121,6 +120,7 @@
         </div>
       </div>
       <div id="hint" class="muted" style="margin-top:10px"></div>
+      <div id="errorBox" style="color:red;font-weight:bold;margin-top:8px"></div>
     </div>
 
     <div class="card">
@@ -149,170 +149,151 @@
       planets: $("#planets"), wheel: $("#wheel"), log: $("#log"), hint: $("#hint")
     };
 
-    // 小提示
-    el.hint.innerText = "必填欄位：日期、時間、緯度、經度、lang、house_system。時區可留空，後端預設為 'UTC' 或使用 FREEASTRO_LANG_DEFAULT 作兜底。";
+    el.hint.innerText = "必填欄位：日期、時間、緯度、經度、lang、house_system。";
 
-    // 查地名 -> 經緯度（Nominatim）
-    el.btnGeo.addEventListener("click", async () => {
-      const q = (el.place.value || "").trim();
-      if (!q) return alert("請輸入地名");
-      try {
-        setLoading(el.btnGeo, true);
-        const langParam = encodeURIComponent(el.lang.value || "zh");
-        const r = await fetch(`/.netlify/functions/freeastro-geo?q=${encodeURIComponent(q)}&lang=${langParam}`);
-        const data = await r.json();
-        if (!Array.isArray(data) || data.length === 0) {
-          toast("找不到地點，請嘗試更多關鍵字", "warn");
-          return;
-        }
-        // 取第一筆
-        const best = data[0];
-        el.lat.value = best.lat;
-        el.lon.value = best.lon;
-        toast(`地點已設定：${best.display_name}`);
-        log(`Geo result:\n${JSON.stringify(best, null, 2)}`);
-      } catch (e) {
-        toast(`Geo 查詢失敗：${e.message}`, "warn");
-        logErr(e);
-      } finally {
-        setLoading(el.btnGeo, false);
+    let lastRequestTime = 0;
+
+    async function fetchPlanets(payload) {
+      const now = Date.now();
+      if (now - lastRequestTime < 1500) {
+        showError("請稍候再試（防止重複呼叫）");
+        return;
       }
-    });
+      lastRequestTime = now;
 
-    el.btnPlanets.addEventListener("click", async () => {
-      const payload = buildPayload();
-      if (!payload) return;
       try {
-        setLoading(el.btnPlanets, true);
-        const r = await fetch("/.netlify/functions/freeastro-planets", {
+        const response = await fetch("/.netlify/functions/freeastro-planets", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
         });
-        const data = await r.json();
-        if (!r.ok) {
-          toast(`Planets 失敗：${data.message || r.statusText}`, "warn");
-          log(`Planets error:\n${JSON.stringify(data, null, 2)}`);
+
+        if (response.status === 429) {
+          showError("Too Many Requests，請稍後再試");
           return;
         }
+
+        if (!response.ok) {
+          showError(`伺服器錯誤：${response.status}`);
+          return;
+        }
+
+        const data = await response.json();
+        if (data?.input?.utc_offset || data?.input?.tzString) {
+          const tzField = document.querySelector("#timezone");
+          if (tzField) tzField.value = data.input.tzString || data.input.utc_offset || "+08:00";
+        }
+
         renderPlanets(data);
         toast("行星位置取得成功");
         log(`Planets:\n${JSON.stringify(data, null, 2)}`);
-      } catch (e) {
-        toast(`Planets 呼叫失敗：${e.message}`, "warn");
-        logErr(e);
-      } finally {
-        setLoading(el.btnPlanets, false);
+      } catch (err) {
+        showError(`連線錯誤：${err.message}`);
       }
-    });
-
-    el.btnWheel.addEventListener("click", async () => {
-      const payload = buildPayload();
-      if (!payload) return;
-      try {
-        setLoading(el.btnWheel, true);
-        const r = await fetch("/.netlify/functions/freeastro-wheel", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const data = await r.json();
-        if (!r.ok) {
-          toast(`Wheel 失敗：${data.message || r.statusText}`, "warn");
-          log(`Wheel error:\n${JSON.stringify(data, null, 2)}`);
-          return;
-        }
-        if (data && data.base64) {
-          el.wheel.innerHTML = `<img alt="natal wheel" src="data:image/png;base64,${data.base64}">`;
-          toast("星盤圖產生成功");
-        } else {
-          toast("未收到 base64 圖片", "warn");
-        }
-        log(`Wheel:\n${JSON.stringify(data, null, 2)}`);
-      } catch (e) {
-        toast(`Wheel 呼叫失敗：${e.message}`, "warn");
-        logErr(e);
-      } finally {
-        setLoading(el.btnWheel, false);
-      }
-    });
-
-    el.btnClear.addEventListener("click", () => {
-      el.planets.innerHTML = "";
-      el.wheel.innerHTML = "";
-      el.log.textContent = "";
-      toast("已清空輸出");
-    });
-
-    function buildPayload() {
-      const date = (el.date.value || "").trim();
-      const time = (el.time.value || "").trim();
-      const lang = (el.lang.value || "zh").trim();
-      const house_system = (el.house_system.value || "placidus").trim();
-      const latitude = parseFloat(el.lat.value);
-      const longitude = parseFloat(el.lon.value);
-      let timezone = (el.tz.value || "").trim();
-
-      if (!date || !time) { alert("請填寫日期與時間"); return null; }
-      if (Number.isNaN(latitude) || Number.isNaN(longitude)) { alert("請先填妥經緯度（或用地名查詢）"); return null; }
-      if (!lang) { alert("請選擇語言 lang"); return null; }
-      if (!house_system) { alert("請選擇宮位系統 house_system"); return null; }
-      if (!timezone) timezone = "UTC"; // 後端也會兜底
-
-      return {
-        name: (el.name.value || "").trim(),
-        date, time, timezone,
-        latitude, longitude,
-        lang, house_system
-      };
     }
 
-    function renderPlanets(data) {
-      // 嘗試從常見結構取資料；若不同，直接把物件扁平化
-      const arr = Array.isArray(data?.planets) ? data.planets
-                : Array.isArray(data) ? data
-                : Array.isArray(data?.data) ? data.data
-                : [];
-
-      if (arr.length === 0) {
-        el.planets.innerHTML = `<div class="muted">未偵測到標準 planets 陣列，以下為原始結果：</div><pre>${escapeHTML(JSON.stringify(data,null,2))}</pre>`;
-        return;
-      }
-
-      let html = `<table><thead><tr>
-        <th>行星</th><th>星座</th><th>度數</th><th>宮位</th><th>赤經/赤緯(若有)</th>
-      </tr></thead><tbody>`;
-      for (const p of arr) {
-        html += `<tr>
-          <td>${escapeHTML(p.name ?? p.planet ?? "")}</td>
-          <td>${escapeHTML(p.sign ?? "")}</td>
-          <td>${escapeHTML(String(p.degree ?? p.deg ?? ""))}</td>
-          <td>${escapeHTML(String(p.house ?? ""))}</td>
-          <td>${escapeHTML([p.ra, p.dec].filter(Boolean).join(" / "))}</td>
-        </tr>`;
-      }
-      html += `</tbody></table>`;
-      el.planets.innerHTML = html;
+    function showError(msg) {
+      const box = document.querySelector("#errorBox");
+      if (box) box.textContent = msg;
     }
 
-    function setLoading(btn, on) {
-      btn.disabled = !!on;
-      btn.textContent = on ? "處理中..." : btn.getAttribute("id")==="btnGeo"?"查經緯度":btn.getAttribute("id")==="btnPlanets"?"取得行星位置":btn.getAttribute("id")==="btnWheel"?"產生星盤圖":"清空輸出";
+    function toast(msg, level="ok") {
+      el.hint.innerHTML = `<span class="${level==='ok'?'ok':'warn'}">${msg}</span>`;
     }
-    function toast(msg, level="ok"){ el.hint.innerHTML = `<span class="${level==='ok'?'ok':'warn'}">${escapeHTML(msg)}</span>`; }
+
     function log(s){ el.log.textContent = s; }
-    function logErr(e){ el.log.textContent = (e && e.stack) ? e.stack : String(e); }
-    function escapeHTML(s){ return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])) }
-
-    // 可選：根據瀏覽器語言設置 lang 預設；不覆蓋手動選擇
-    (function initLang(){
-      try{
-        const nav = (navigator.language || "zh").slice(0,2).toLowerCase();
-        if (["zh","en","es","fr","de","ja","ko","ru","pt","it"].includes(nav)) {
-          if (!el.lang.value) el.lang.value = nav;
-        }
-      }catch{}
-    })();
+    function renderPlanets(data){ el.planets.textContent = JSON.stringify(data,null,2); }
   </script>
+  <script>
+/** ===== 前端通用工具：節流 + 退避重試 ===== **/
+
+// 1) 簡易節流器：同時間只允許 1 個請求在飛；彼此間隔至少 900ms
+const requestQueue = [];
+let busy = false;
+const MIN_GAP_MS = 900;
+
+async function runThrottled(task) {
+  return new Promise((resolve, reject) => {
+    requestQueue.push({ task, resolve, reject });
+    pump();
+  });
+}
+
+async function pump() {
+  if (busy || requestQueue.length === 0) return;
+  busy = true;
+  const { task, resolve, reject } = requestQueue.shift();
+  const start = Date.now();
+  try {
+    const r = await task();
+    const elapsed = Date.now() - start;
+    const sleep = Math.max(0, MIN_GAP_MS - elapsed);
+    setTimeout(() => {
+      busy = false;
+      resolve(r);
+      pump();
+    }, sleep);
+  } catch (e) {
+    busy = false;
+    reject(e);
+    pump();
+  }
+}
+
+// 2) 退避重試：遇到 429/502/503/504 自動重試（0.8s, 1.6s, 3.2s）
+async function fetchWithRetry(url, opts = {}, tries = 3, backoff = 800) {
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(url, opts).catch(() => null);
+    if (res && res.ok) return res;
+    const status = res ? res.status : 0;
+    if (![429, 502, 503, 504].includes(status)) {
+      // 不是可重試的錯誤，直接丟出
+      if (res) throw new Error(`${status} ${res.statusText}`);
+      throw new Error('network_error');
+    }
+    // 等待退避
+    await new Promise(r => setTimeout(r, backoff));
+    backoff *= 2;
+  }
+  throw new Error('too_many_requests');
+}
+
+// 3) 封裝呼叫：用節流器 + 退避重試 打到 Netlify Functions
+async function callPlanets(payload) {
+  const url = "/.netlify/functions/freeastro-planets";
+  const opts = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  };
+  return runThrottled(async () => {
+    const res = await fetchWithRetry(url, opts, 3, 800);
+    return res.json();
+  });
+}
+
+// 4) 把按鈕點擊與 callPlanets 綁定（範例）
+//   - 你原本的 planets 呼叫，改成用 callPlanets(payload)
+window.fetchPlanetsSafe = async function(payload) {
+  // 防止連點（可選）
+  const btns = document.querySelectorAll("button");
+  btns.forEach(b => b.disabled = true);
+  try {
+    const data = await callPlanets(payload);
+    return data; // 外面照舊處理 data
+  } catch (e) {
+    const box = document.getElementById("diagnose") || document.body;
+    const msg = (e.message === 'too_many_requests')
+      ? '呼叫過於頻繁，已自動重試但仍被限流，請稍後再試。'
+      : `呼叫失敗：${e.message}`;
+    console.warn('[planets]', e);
+    alert(msg);
+    throw e;
+  } finally {
+    setTimeout(() => btns.forEach(b => b.disabled = false), 600);
+  }
+};
+</script>
+
 </body>
 </html>
