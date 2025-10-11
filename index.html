@@ -144,6 +144,45 @@ class Gate {
     finally { this._busy = false; }
   }
 }
+
+<script>
+function normalizeTimeTo24h(raw) {
+  // 原生 <input type="time"> 在不同地區可能含「上午/下午」
+  // 這裡通吃：08:50、8:50、下午 02:05、AM 7:03 …都轉成 24h
+  if (!raw) return null;
+  let s = String(raw).trim();
+
+  // 把中文/英文 AM/PM 都標準化
+  const am = /^(上午|am|a\.m\.)/i;
+  const pm = /^(下午|pm|p\.m\.)/i;
+  let meridian = null;
+  if (am.test(s)) { meridian = 'AM'; s = s.replace(am, '').trim(); }
+  if (pm.test(s)) { meridian = 'PM'; s = s.replace(pm, '').trim(); }
+
+  // 只留時:分
+  const m = s.match(/(\d{1,2})\s*[:：]\s*(\d{1,2})/);
+  if (!m) return null;
+  let [ , hh, mm ] = m;
+  let h = parseInt(hh,10), m2 = parseInt(mm,10);
+  if (Number.isNaN(h) || Number.isNaN(m2)) return null;
+
+  if (meridian === 'AM' && h === 12) h = 0;             // 12:xx AM -> 00:xx
+  if (meridian === 'PM' && h !== 12) h += 12;           // 1~11 PM -> +12
+
+  if (h < 0 || h > 23 || m2 < 0 || m2 > 59) return null;
+  return `${String(h).padStart(2,'0')}:${String(m2).padStart(2,'0')}`;
+}
+
+// 例：送出前取值
+function readTime() {
+  const raw = document.getElementById('birthTime').value;
+  return normalizeTimeTo24h(raw) ?? '08:00';
+}
+</script>
+
+
+
+
 function getTime24(raw) {
   // raw 可能是 "下午 08:50"、"PM 8:50"、"08:50" 等
   const s = String(raw || '').trim();
@@ -166,6 +205,112 @@ function getTime24(raw) {
   return { hour, minute };
 }
 
+<script>
+// 簡單節流（避免連點）
+let geoBusy = false;
+
+// 退避重試：遇到 429/503/網路失敗會最多重試 4 次
+async function postWithBackoff(url, payload, {tries=4, base=600} = {}) {
+  let lastErr;
+  for (let i=0; i<tries; i++) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
+      if (res.status === 429 || res.status === 503) {
+        // 指數退避，並加一點抖動
+        const delay = Math.round((base * Math.pow(1.7, i)) * (0.8 + Math.random()*0.4));
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(()=> '');
+        throw new Error(`HTTP ${res.status} ${res.statusText} ${text}`);
+      }
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      // 網路斷線等，再重試
+      const delay = Math.round((base * Math.pow(1.7, i)) * (0.8 + Math.random()*0.4));
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr ?? new Error('Network error');
+}
+
+async function handleGeoLookup() {
+  if (geoBusy) return;
+  geoBusy = true;
+  const btn = document.getElementById('btnGeo');
+  const qEl = document.getElementById('geoQuery');
+  const latEl = document.getElementById('lat');
+  const lngEl = document.getElementById('lng');
+
+  const q = (qEl.value || '').trim();
+  if (!q) {
+    alert('請先輸入地名（例：tainan, taiwan）');
+    geoBusy = false; 
+    return;
+  }
+
+  const prevLabel = btn.textContent;
+  btn.textContent = '查詢中…';
+  btn.disabled = true;
+
+  try {
+    // 呼叫 Netlify function
+    const data = await postWithBackoff('/.netlify/functions/freeastro-geo', { q });
+
+    // 後端回來的兩種常見格式都吃：
+    // 1) { lat: number/string, lon: number/string }
+    // 2) { data: { lat, lon } } 或 { results: [{ lat, lon}, ...] }
+    let lat, lon;
+
+    if (typeof data?.lat !== 'undefined' && typeof data?.lon !== 'undefined') {
+      lat = data.lat; lon = data.lon;
+    } else if (data?.data?.lat && data?.data?.lon) {
+      lat = data.data.lat; lon = data.data.lon;
+    } else if (Array.isArray(data?.results) && data.results.length) {
+      lat = data.results[0].lat;
+      lon = data.results[0].lon;
+    } else {
+      // 如果後端有錯誤訊息也提示出來
+      const msg = data?.message || data?.error || '沒有取得經緯度結果';
+      throw new Error(msg);
+    }
+
+    // 正規化成 6 位小數字串
+    const latNum = Number(lat), lonNum = Number(lon);
+    if (Number.isNaN(latNum) || Number.isNaN(lonNum)) {
+      throw new Error(`無效的座標：lat=${lat}, lon=${lon}`);
+    }
+    latEl.value = latNum.toFixed(6);
+    lngEl.value = lonNum.toFixed(6);
+
+    // 成功後清掉錯誤提示
+    showGeoError('');
+  } catch (err) {
+    console.error('Geo lookup failed:', err);
+    showGeoError(`地理查詢失敗：${(err?.message || err)}`.slice(0, 120));
+  } finally {
+    btn.textContent = prevLabel;
+    btn.disabled = false;
+    geoBusy = false;
+  }
+}
+
+function showGeoError(msg) {
+  // 你頁面上顯示「地理查詢失敗」的地方（自行換成你的容器）
+  const el = document.getElementById('geoError');
+  if (!el) return;
+  el.textContent = msg || '';
+}
+
+// 綁定按鈕
+document.getElementById('btnGeo')?.addEventListener('click', handleGeoLookup);
+</script>
 // 你要送到後端時，這樣取：
 function readBirthTimePayload() {
   const { hour, minute } = getTime24(document.getElementById('birthTime').value);
