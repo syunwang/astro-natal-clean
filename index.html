@@ -53,7 +53,9 @@
         </div>
         <div>
           <label>出生時間（24h HH:MM）</label>
-          <input id="birthTime" type="time" step="60" />
+          <!-- 出生時間（24h HH:MM） -->
+          <input id="birthTime" type="time" step="60" inputmode="numeric" class="input" />
+
         </div>
       </div>
 
@@ -88,7 +90,7 @@
           <input id="placeQuery" placeholder="tainan, taiwan" />
         </div>
         <div style="align-self:end">
-          <button id="btnGeo" class="secondary"><span>查經緯度</span></button>
+          <button id="btnGeo" type="button" class="secondary"><span>查經緯度</span></button>
         </div>
       </div>
       <div class="row" style="margin-top:10px">
@@ -142,6 +144,122 @@ class Gate {
     finally { this._busy = false; }
   }
 }
+function getTime24(raw) {
+  // raw 可能是 "下午 08:50"、"PM 8:50"、"08:50" 等
+  const s = String(raw || '').trim();
+  const hasPM = /下午|PM/i.test(s);
+  const hasAM = /上午|AM/i.test(s);
+  // 取出數字時分
+  const m = s.match(/(\d{1,2})\s*:\s*(\d{2})/);
+  if (!m) return { hour: 0, minute: 0 };
+
+  let hour = parseInt(m[1], 10);
+  const minute = parseInt(m[2], 10);
+
+  if (hasPM && hour < 12) hour += 12;
+  if (hasAM && hour === 12) hour = 0; // 12:xx AM -> 00:xx
+
+  // 若完全沒有 AM/PM，就照 24h 當作輸入
+  if (!hasAM && !hasPM) {
+    hour = Math.max(0, Math.min(23, hour));
+  }
+  return { hour, minute };
+}
+
+// 你要送到後端時，這樣取：
+function readBirthTimePayload() {
+  const { hour, minute } = getTime24(document.getElementById('birthTime').value);
+  return { hour, minute };
+}
+
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function geoLookupWithBackoff(q) {
+  const url = '/.netlify/functions/freeastro-geo';
+  const headers = { 'Content-Type': 'application/json' };
+  const body = JSON.stringify({ q });
+
+  let attempt = 0;
+  const max = 5;               // 最多 5 次
+  let delay = 300;             // 300ms 開始退避
+
+  while (true) {
+    const resp = await fetch(url, { method: 'POST', headers, body });
+    if (resp.ok) {
+      const data = await resp.json();
+      return data;             // 後面解析
+    }
+
+    // 429/503 等，做退避重試
+    if ((resp.status === 429 || resp.status === 503) && attempt < max) {
+      attempt++;
+      await sleep(delay);
+      delay *= 2;
+      continue;
+    }
+
+    // 其他錯誤
+    const txt = await resp.text().catch(()=>'');
+    throw new Error(`geo ${resp.status}: ${txt || 'unknown error'}`);
+  }
+}
+
+async function onClickGeo() {
+  const btn = document.getElementById('btnGeo');
+  const qEl = document.getElementById('placeQuery');
+  const latEl = document.getElementById('lat');
+  const lngEl = document.getElementById('lng');
+  const tzEl  = document.getElementById('tz');
+
+  const q = (qEl?.value || '').trim();
+  if (!q) { showDiag('請先輸入地名'); return; }
+
+  // UI：鎖定按鈕
+  const oldTxt = btn.innerText;
+  btn.disabled = true;
+  btn.innerText = '查詢中…';
+
+  try {
+    const data = await geoLookupWithBackoff(q);
+    // 後端可能回 { ok:true, result:{lat, lon, iana_tz} } 或 { ok:true, results:[...] }
+    let rec = null;
+
+    if (data?.result && (data.result.lat || data.result.lon)) {
+      rec = data.result;
+    } else if (Array.isArray(data?.results) && data.results.length) {
+      rec = data.results[0];
+    }
+
+    if (!rec) throw new Error('地理查詢沒有結果');
+
+    // lat/lon 欄位寫回
+    if (latEl) latEl.value = String(rec.lat ?? rec.latitude ?? '');
+    if (lngEl) lngEl.value = String(rec.lon ?? rec.lng ?? rec.longitude ?? '');
+
+    // 若回傳 iana_tz 或 tz，也幫你寫回
+    const tz = rec.iana_tz || rec.tz || rec.timezone || '';
+    if (tz && tzEl) tzEl.value = tz;
+
+    showDiag('地理查詢成功');
+  } catch (err) {
+    console.error(err);
+    showDiag('地理查詢失敗');
+  } finally {
+    btn.disabled = false;
+    btn.innerText = oldTxt;
+  }
+}
+
+// 綁定按鈕
+document.getElementById('btnGeo')?.addEventListener('click', onClickGeo);
+
+// 小小診斷輸出到你頁面「診斷訊息」區塊（或改 console）
+function showDiag(msg) {
+  const box = document.getElementById('diagBox'); // 若有診斷區塊就寫進去
+  if (box) box.textContent = msg;
+}
+
+
 // 指數退避重試
 async function fetchWithRetry(url, opt={}, {retries=3, base=500}={}){
   let err;
