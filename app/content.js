@@ -1,178 +1,210 @@
-/**
- * Astro-Natal - Frontend helpers (overlay)
- * Features:
- *  - fetchWithRetry with backoff (handles 429/5xx)
- *  - click throttle to avoid spamming API
- *  - auto timezone normalization ("8" -> "+08:00", "Asia/Taipei" etc.)
- *  - unified error toast in #diagnose box
+/* -----------------------
+   小工具
+------------------------ */
+const $ = (sel) => document.querySelector(sel);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function setBusy(b) {
+  document.body.style.cursor = b ? 'progress' : 'default';
+}
+
+function log(msg, status = '') {
+  const box = $('#diag');
+  const stamp = new Date().toLocaleTimeString();
+  const s = status ? ` (${status})` : '';
+  box.textContent += `[${stamp}] ${msg}${s}\n`;
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearAll() {
+  ['name','date','time','tz','keyword','lat','lng'].forEach(id => { const el = $('#'+id); if (el) el.value = ''; });
+  $('#diag').textContent = '';
+}
+
+/** 將瀏覽器各地區可能出現的「上午/下午、AM/PM、上午 08:50 之類」統一轉 24h。
+ *  例：'下午 02:05' -> '14:05'，'AM 7:03' -> '07:03'
  */
+function normalizeTimeTo24h(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
 
-(() => {
-  const $ = (sel) => document.querySelector(sel);
-  const diagnose = $("#diagnose") || document.body;
+  // 去掉全角空白
+  s = s.replace(/\u3000/g, ' ').replace(/\s+/g, ' ').trim();
 
-  const log = (msg, data) => {
-    console.log("[astro-natal]", msg, data || "");
-    if ($("#diagnose_json")) {
-      const cur = $("#diagnose_json").textContent || "";
-      const out = (typeof data === "object") ? JSON.stringify(data, null, 2) : String(data ?? "");
-      $("#diagnose_json").textContent = `${cur}\n${msg}\n${out}`.trim();
-    }
-  };
+  // 常見前綴轉 AM/PM
+  if (/^上午/i.test(s)) s = s.replace(/^上午\s*/i, 'AM ');
+  if (/^下午/i.test(s)) s = s.replace(/^下午\s*/i, 'PM ');
+  if (/^晚上/i.test(s)) s = s.replace(/^晚上\s*/i, 'PM ');
+  if (/^中午/i.test(s))  s = s.replace(/^中午\s*/i, 'PM ');
 
-  // ---- Backoff & Retry ----
-  async function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
-
-  async function fetchWithRetry(url, options = {}, times = 5) {
-    let lastError;
-    for (let i = 0; i < times; i++) {
-      try {
-        const r = await fetch(url, options);
-        if (r.ok) return r;
-        // retry on 429 / 5xx
-        if (r.status === 429 || (r.status >= 500 && r.status < 600)) {
-          const wait = 500 + Math.floor(Math.random() * 2000) + i * 500;
-          log(`Upstream ${r.status}, retry in ${wait}ms`);
-          await sleep(wait);
-          continue;
-        }
-        // other non-OK -> throw with text
-        const t = await r.text();
-        const e = new Error(`HTTP ${r.status}: ${t}`);
-        e.status = r.status;
-        throw e;
-      } catch (err) {
-        lastError = err;
-        const wait = 500 + Math.floor(Math.random() * 2000) + i * 500;
-        log(`Network error, retry in ${wait}ms`, err);
-        await sleep(wait);
-      }
-    }
-    throw lastError || new Error("fetch failed");
+  // 若是 AM/PM 格式
+  const ampm = /^(AM|PM)\s*(\d{1,2})[:：\.](\d{2})$/i.exec(s);
+  if (ampm) {
+    let hh = +ampm[2], mm = +ampm[3];
+    const isPM = ampm[1].toUpperCase() === 'PM';
+    if (isPM && hh !== 12) hh += 12;
+    if (!isPM && hh === 12) hh = 0;
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
   }
 
-  // ---- Click throttle ----
-  function throttlePromise(fn, gap = 1200) {
-    let last = 0, pend = Promise.resolve();
-    return async (...args) => {
-      const now = Date.now();
-      if (now - last < gap) {
-        const left = gap - (now - last);
-        log(`Throttled, wait ${left}ms`);
-        await sleep(left);
-      }
-      last = Date.now();
-      pend = Promise.resolve().then(() => fn(...args));
-      return pend;
-    };
+  // 直接 HH:MM
+  const h24 = /^(\d{1,2})[:：\.](\d{2})$/.exec(s);
+  if (h24) {
+    const hh = Math.max(0, Math.min(23, +h24[1]));
+    const mm = Math.max(0, Math.min(59, +h24[2]));
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
   }
 
-  // ---- Timezone normalization ----
-  function normalizeTimezone(input) {
-    if (!input) return { tzString: "UTC", tzHours: 0 };
-    let str = String(input).trim();
-    // Numeric like "8" or "-5.5"
-    if (/^[+-]?\d+(\.\d+)?$/.test(str)) {
-      const h = parseFloat(str);
-      if (!isFinite(h)) return { tzString: "UTC", tzHours: 0 };
-      const sign = h >= 0 ? "+" : "-";
-      const abs = Math.abs(h);
-      const hh = Math.floor(abs);
-      const mm = Math.round((abs - hh) * 60);
-      const tz = `${sign}${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
-      return { tzString: tz, tzHours: h };
+  return s; // 讓後端自己兜底
+}
+
+/* -----------------------
+   讀取表單 → payload
+------------------------ */
+function getPayload() {
+  const date = $('#date').value.trim();
+  const timeRaw = $('#time').value.trim();
+  const time = normalizeTimeTo24h(timeRaw);
+  const tz = $('#tz').value.trim();       // 允許 "8" 或 "Asia/Taipei"
+  const lang = $('#lang').value;
+  const house_system = $('#house').value;
+  const latitude = +($('#lat').value || 0);
+  const longitude = +($('#lng').value || 0);
+
+  return { date, time, tz, lang, house_system, latitude, longitude };
+}
+
+/* -----------------------
+   429 退避重試（簡）
+------------------------ */
+async function fetchJSON(url, options, tries = 4) {
+  for (let i = 0; i < tries; i++) {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      const delay = Math.min(2000 * (i + 1), 6000);
+      log(`429 Too Many Requests，${delay} ms 後重試…`, '429');
+      await sleep(delay);
+      continue;
     }
-    // Already like +08:00
-    if (/^[+-]\d{2}:\d{2}$/.test(str)) {
-      const hh = parseInt(str.slice(1, 3), 10);
-      const mm = parseInt(str.slice(4, 6), 10);
-      const sign = str[0] === "-" ? -1 : 1;
-      const h = sign * (hh + mm / 60);
-      return { tzString: str, tzHours: h };
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>'');
+      throw new Error(`HTTP ${res.status} ${res.statusText} :: ${txt}`);
     }
-    // IANA like Asia/Taipei -> pass through, hours unknown here
-    return { tzString: str, tzHours: undefined };
+    return res.json();
   }
+  throw new Error('多次重試仍 429，請稍候再試');
+}
 
-  function toastError(title, detail) {
-    const box = $("#diagnose_box");
-    if (!box) return alert(`${title}\n${detail ?? ""}`);
-    box.style.display = "block";
-    $("#diagnose_title").textContent = title;
-    $("#diagnose_json").textContent = typeof detail === "object" ? JSON.stringify(detail, null, 2) : String(detail ?? "");
-  }
+/* -----------------------
+   API 呼叫
+------------------------ */
+async function callGeo() {
+  setBusy(true);
+  $('#diag').textContent = '查詢中…\n';
 
-  // ---- Build payload from form ----
-  function buildPayload() {
-    // Inputs (adapt names to your HTML)
-    const dateStr = $("#birth_date")?.value || $("#date")?.value;
-    const timeStr = $("#birth_time")?.value || $("#time")?.value;
-    const utcOffsetStr = $("#utc_offset")?.value || $("#timezone")?.value || $("#tz")?.value;
-    const lat = parseFloat($("#latitude")?.value ?? "");
-    const lon = parseFloat($("#longitude")?.value ?? "");
-    const house = $("#house_system")?.value || "placidus";
-    const lang = $("#lang")?.value || "zh";
+  try {
+    const q = $('#keyword').value.trim();
+    if (!q) throw new Error('請輸入地名關鍵字');
+    const body = JSON.stringify({ q });
 
-    // Normalize date/time
-    const [y, m, d] = String(dateStr || "").replace(/[\/.]/g, "-").split("-").map(Number);
-    const [hh, mm] = String(timeStr || "").split(":").map(Number);
-    const { tzString, tzHours } = normalizeTimezone(utcOffsetStr);
+    const data = await fetchJSON('/.netlify/functions/freeastro-geo', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body
+    });
 
-    return {
-      y, m, d, hh, mm,
-      lat, lon,
-      house_system: house,
-      lang,
-      tzString, // e.g. "+08:00" or "Asia/Taipei"
-      tzHours   // numeric offset if available
-    };
-  }
-
-  // ---- Call planets ----
-  async function callPlanets() {
-    $("#planets_error") && ($("#planets_error").textContent = "");
-    const p = buildPayload();
-    log("payload", p);
-
-    // Validate
-    if (!p.y || !p.m || !p.d || !isFinite(p.lat) || !isFinite(p.lon) || !isFinite(p.hh) || !isFinite(p.mm)) {
-      toastError("輸入不完整", "請確認日期、時間、經緯度皆已填入");
-      return;
+    if (!data || data.status !== 'ok') {
+      throw new Error(data?.message || '地理查詢失敗');
     }
 
-    const body = {
-      date: `${p.y}-${String(p.m).padStart(2, "0")}-${String(p.d).padStart(2, "0")}`,
-      time: `${String(p.hh).padStart(2, "0")}:${String(p.mm).padStart(2, "0")}`,
-      timezone: p.tzString,     // allow "+08:00" or "Asia/Taipei"
-      utc_offset: p.tzHours,    // numeric when available
-      latitude: p.lat,
-      longitude: p.lon,
-      house_system: p.house_system,
-      lang: p.lang
-    };
-
-    try {
-      const r = await fetchWithRetry("/.netlify/functions/freeastro-planets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body)
-      }, 5);
-      const data = await r.json();
-      log("planets data", data);
-      // Show result (user can adapt to their UI)
-      $("#planets_json") && ($("#planets_json").textContent = JSON.stringify(data, null, 2));
-    } catch (err) {
-      console.error(err);
-      const msg = (err && err.message) ? err.message : String(err);
-      $("#planets_error") && ($("#planets_error").textContent = `Planets 失敗：${msg}`);
-      toastError("Planets 失敗", msg);
-    }
+    // 假設你的 geo 回傳 { lat, lng, display }
+    $('#lat').value = data.lat.toFixed(6);
+    $('#lng').value = data.lng.toFixed(6);
+    log(`地理 OK：${data.display || (data.lat+','+data.lng)}`, 'ok');
+  } catch (err) {
+    log(`地理查詢失敗：${err.message}`, 'error');
+  } finally {
+    setBusy(false);
   }
+}
 
-  // Hook buttons if exist
-  const btn = document.getElementById("btn_planets");
-  if (btn) btn.addEventListener("click", throttlePromise(callPlanets, 1200));
+async function callPlanets(payload) {
+  const body = JSON.stringify(payload);
+  return fetchJSON('/.netlify/functions/freeastro-planets', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body
+  });
+}
 
-  // Expose for console debug
-  window.__astroNat = { normalizeTimezone, buildPayload, callPlanets };
-})();
+async function callWheel(payload) {
+  const body = JSON.stringify(payload);
+  return fetchJSON('/.netlify/functions/freeastro-wheel', {
+    method:'POST',
+    headers:{ 'Content-Type':'application/json' },
+    body
+  });
+}
+
+/* -----------------------
+   一鍵：行星 → 輪盤
+------------------------ */
+async function oneClick() {
+  setBusy(true);
+  $('#diag').textContent = '';
+
+  try {
+    // 收集 payload
+    const p = getPayload();
+    if (!p.date || !p.time || !p.tz || !p.lang || !p.house_system) {
+      throw new Error('必填欄位：日期、時間、時區、lang、house_system。');
+    }
+    if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) {
+      throw new Error('請先填完整經緯度（可用「查經緯度」取得）');
+    }
+
+    log('呼叫 Planets…');
+    const planets = await callPlanets(p);
+    log('Planets OK', 'ok');
+
+    // 若需要某些欄位給輪盤，可在此整理 payload
+    const next = { ...p, planets: planets?.result };
+
+    log('呼叫 Wheel…');
+    const wheel = await callWheel(next);
+    log('Wheel OK', 'ok');
+
+    // 假設 wheel 會回傳 imageDataUrl（base64）
+    if (wheel?.imageDataUrl) {
+      const a = document.createElement('a');
+      a.href = wheel.imageDataUrl;
+      a.download = 'natal-wheel.png';
+      a.click();
+      log('已觸發星盤圖下載', 'ok');
+    } else {
+      log('Wheel 回傳沒有 imageDataUrl（略過下載）', 'warn');
+    }
+  } catch (err) {
+    log(`一鍵流程失敗：${err.message}`, 'error');
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* -----------------------
+   綁定事件（無任何 inline onclick）
+------------------------ */
+$('#btnGeo').addEventListener('click', (e) => {
+  e.preventDefault();
+  callGeo();
+});
+
+$('#btnOne').addEventListener('click', (e) => {
+  e.preventDefault();
+  oneClick();
+});
+
+$('#btnClear').addEventListener('click', (e) => {
+  e.preventDefault();
+  clearAll();
+});
