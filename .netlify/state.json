@@ -1,21 +1,20 @@
 {
 	"geolocation": {
 		"data": {
-			"city": "Chicago",
+			"city": "Taoyuan District",
 			"country": {
-				"code": "US",
-				"name": "United States"
+				"code": "TW",
+				"name": "Taiwan"
 			},
 			"subdivision": {
-				"code": "IL",
-				"name": "Illinois"
+				"code": "TAO",
+				"name": "Taoyuan"
 			},
-			"timezone": "America/Chicago",
-			"latitude": 41.8835,
-			"longitude": -87.6305,
-			"postalCode": "60602"
+			"timezone": "Asia/Taipei",
+			"latitude": 24.9889,
+			"longitude": 121.3176
 		},
-		"timestamp": 1760154115217
+		"timestamp": 1760523525985
 	},
 	"siteId": "fecfbee4-e361-4ccd-abf9-097e175228b7"
 }

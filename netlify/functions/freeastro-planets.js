@@ -1,133 +1,61 @@
 // netlify/functions/freeastro-planets.js
-const CORS = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
-};
+import fetch from 'node-fetch';
 
-const GATE_INTERVAL_MS = 1200;
-let lastCallAt = 0;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function withAuth(url, options = {}) {
-  const style = process.env.FREEASTRO_AUTH_STYLE;
-  const key = process.env.FREEASTRO_API_KEY;
-  if (!style || !key) return { url, options };
-
-  if (style === 'header') {
-    options.headers = { ...(options.headers || {}), Authorization: `Bearer ${key}` };
-    return { url, options };
-  }
-  if (style === 'query') {
-    const u = new URL(url);
-    u.searchParams.set('api_key', key);
-    return { url: u.toString(), options };
-  }
-  return { url, options };
-}
-
-async function gate() {
-  const now = Date.now();
-  const wait = lastCallAt + GATE_INTERVAL_MS - now;
-  if (wait > 0) await sleep(wait);
-  lastCallAt = Date.now();
-}
-
-async function doFetch(url, options, tries = 4, backoff = 300) {
-  for (let i = 0; i < tries; i++) {
-    try {
-      await gate();
-      const res = await fetch(url, options);
-      if (res.ok) return res;
-      if (res.status === 429 || res.status >= 500) {
-        await sleep(backoff);
-        backoff *= 2;
-        continue;
-      }
-      return res;
-    } catch (e) {
-      await sleep(backoff);
-      backoff *= 2;
-    }
-  }
-  throw new Error('Upstream not available after retries');
-}
-
-function taiwanFallbackUtcOffset(lat, lon, given) {
-  if (given !== undefined && given !== null && given !== '') return given;
-  if (lat >= 20 && lat <= 26 && lon >= 119 && lon <= 123) return 8;
-  return given;
-}
-
-exports.handler = async (event) => {
-  if (event.httpMethod === 'OPTIONS') {
-    return { statusCode: 204, headers: CORS, body: '' };
-  }
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-  }
-
+export const handler = async (event) => {
   try {
     const payload = JSON.parse(event.body || '{}');
-    const {
-      date,       // 'YYYY-MM-DD'
-      time,       // 'HH:MM' (24h)
-      utc_offset, // number 或字串（小時，例 8 或 -5.5）
-      latitude,
-      longitude,
-      house_system, // 'placidus'...
-      lang,         // 'zh' | 'en' ...
-      name,         // optional
-    } = payload;
-
-    if (!date || !time || latitude == null || longitude == null || !house_system || !lang) {
-      throw new Error('缺少必要欄位：date、time、latitude、longitude、house_system、lang');
+    if (!payload.date || !payload.time || !payload.latitude || !payload.longitude) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) };
     }
 
-    const off = taiwanFallbackUtcOffset(Number(latitude), Number(longitude), utc_offset);
+    const apiKey = process.env.FREEASTRO_API_KEY;
+    const planetsUrl = process.env.FREEASTRO_URL_PLANETS || `${process.env.FREEASTRO_BASE}/planets`;
+    const authStyle = process.env.FREEASTRO_AUTH_STYLE || 'header';
 
-    // 目標 API
-    const base = process.env.FREEASTRO_URL_PLANETS
-      || (process.env.FREEASTRO_BASE ? `${process.env.FREEASTRO_BASE}/western/planets` : '');
-    if (!base) throw new Error('FREEASTRO_URL_PLANETS 或 FREEASTRO_BASE 尚未設定');
+    let url = planetsUrl;
+    const headers = { 'Content-Type': 'application/json' };
 
-    let url = base;
-    let body = {
-      date,
-      time,
-      utc_offset: off,
-      latitude: Number(latitude),
-      longitude: Number(longitude),
-      house_system,
-      lang,
-      name,
-    };
+    if (authStyle === 'header' && apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    } else if (authStyle === 'query' && apiKey) {
+      const sep = url.includes('?') ? '&' : '?';
+      url += `${sep}apikey=${apiKey}`;
+    }
 
-    let options = {
+    console.log(`[Planets] → ${url}`);
+
+    const res = await fetch(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    };
+      headers,
+      body: JSON.stringify(payload),
+    });
 
-    ({ url, options } = withAuth(url, options));
-
-    const res = await doFetch(url, options);
     const text = await res.text();
-    // 嘗試轉 JSON；若失敗就包成字串
     let data;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
 
+    if (!res.ok) {
+      console.error(`[Planets] ❌ ${res.status}`, data);
+      return {
+        statusCode: res.status,
+        body: JSON.stringify({ message: data.message || 'Planets request failed', raw: data }),
+      };
+    }
+
+    console.log(`[Planets] ✅ Response OK`);
     return {
-      statusCode: res.status,
-      headers: { ...CORS, 'content-type': 'application/json' },
+      statusCode: 200,
       body: JSON.stringify(data),
     };
   } catch (err) {
+    console.error('[Planets] Exception:', err);
     return {
-      statusCode: 200,
-      headers: { ...CORS, 'content-type': 'application/json' },
-      body: JSON.stringify({ ok: false, error: String(err.message || err) }),
+      statusCode: 500,
+      body: JSON.stringify({ message: 'Internal error', details: err.message }),
     };
   }
 };
