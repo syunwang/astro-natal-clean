@@ -1,141 +1,133 @@
-// --- lightweight in-memory rate gate (per IP) ---
-const ipGate = new Map();
-const WINDOW_MS = 1000;   // 每個 IP/使用者 至少間隔 1 秒
-const MAX_PARALLEL = 1;   // 每個 IP 同時最多 1 個請求
+// netlify/functions/freeastro-planets.js
+const CORS = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'POST, OPTIONS',
+  'access-control-allow-headers': 'content-type',
+};
 
-async function gate(event) {
-  // 在 Netlify 可取 x-forwarded-for，退而求其次 event.ip 或 default
-  const ip = (event.headers && (event.headers['x-forwarded-for'] || event.headers['client-ip'])) || 'default';
-  const info = ipGate.get(ip) || { running: 0, last: 0 };
+const GATE_INTERVAL_MS = 1200;
+let lastCallAt = 0;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function withAuth(url, options = {}) {
+  const style = process.env.FREEASTRO_AUTH_STYLE;
+  const key = process.env.FREEASTRO_API_KEY;
+  if (!style || !key) return { url, options };
+
+  if (style === 'header') {
+    options.headers = { ...(options.headers || {}), Authorization: `Bearer ${key}` };
+    return { url, options };
+  }
+  if (style === 'query') {
+    const u = new URL(url);
+    u.searchParams.set('api_key', key);
+    return { url: u.toString(), options };
+  }
+  return { url, options };
+}
+
+async function gate() {
   const now = Date.now();
+  const wait = lastCallAt + GATE_INTERVAL_MS - now;
+  if (wait > 0) await sleep(wait);
+  lastCallAt = Date.now();
+}
 
-  if (info.running >= MAX_PARALLEL || now - info.last < WINDOW_MS) {
-    // 太頻繁：回 429（前端會做退避重試）
-    return { block: true };
-  }
-  info.running++;
-  info.last = now;
-  ipGate.set(ip, info);
-
-  return {
-    block: false,
-    done() {
-      const cur = ipGate.get(ip) || info;
-      cur.running = Math.max(0, cur.running - 1);
-      ipGate.set(ip, cur);
+async function doFetch(url, options, tries = 4, backoff = 300) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      await gate();
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+      if (res.status === 429 || res.status >= 500) {
+        await sleep(backoff);
+        backoff *= 2;
+        continue;
+      }
+      return res;
+    } catch (e) {
+      await sleep(backoff);
+      backoff *= 2;
     }
-  };
-}
-const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args));
-
-function json(status, obj) {
-  return { statusCode: status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) };
+  }
+  throw new Error('Upstream not available after retries');
 }
 
-function safeJson(s) { try { return JSON.parse(s); } catch { return {}; } }
-
-function pickNumber(...cands) {
-  for (const c of cands) {
-    const n = Number(c);
-    if (Number.isFinite(n)) return n;
-  }
-  return NaN;
-}
-
-function pad(n) { return String(n).padStart(2, '0'); }
-
-// Normalize input timezone to tzString (+HH:MM or IANA) and numeric utc_offset (hours) if available
-function normalizeTz(value, fallbackHours) {
-  const out = { tzString: "UTC", tzHours: 0 };
-  if (value == null || value === "") {
-    if (Number.isFinite(fallbackHours)) {
-      const sign = fallbackHours >= 0 ? "+" : "-";
-      const abs = Math.abs(fallbackHours);
-      const hh = Math.floor(abs);
-      const mm = Math.round((abs - hh) * 60);
-      out.tzString = `${sign}${pad(hh)}:${pad(mm)}`;
-      out.tzHours = fallbackHours;
-    }
-    return out;
-  }
-  const s = String(value).trim();
-  // numeric like "8"
-  if (/^[+-]?\d+(\.\d+)?$/.test(s)) {
-    const h = parseFloat(s);
-    const sign = h >= 0 ? "+" : "-";
-    const abs = Math.abs(h);
-    const hh = Math.floor(abs);
-    const mm = Math.round((abs - hh) * 60);
-    out.tzString = `${sign}${pad(hh)}:${pad(mm)}`;
-    out.tzHours = h;
-    return out;
-  }
-  // +08:00
-  if (/^[+-]\d{2}:\d{2}$/.test(s)) {
-    const hh = parseInt(s.slice(1, 3), 10);
-    const mm = parseInt(s.slice(4, 6), 10);
-    const sign = s[0] === "-" ? -1 : 1;
-    out.tzString = s;
-    out.tzHours = sign * (hh + mm/60);
-    return out;
-  }
-  // IANA
-  out.tzString = s;
-  out.tzHours = Number.isFinite(fallbackHours) ? fallbackHours : undefined;
-  return out;
-}
-
-function makeUpstream() {
-  const url = (process.env.FREEASTRO_URL_PLANETS || "").trim() ||
-              ((process.env.FREEASTRO_BASE || "").replace(/[\/\s]+$/,'') + "/western/planets");
-  if (!/^https?:\/\//i.test(url)) throw new Error("config_error: FREEASTRO_URL_PLANETS or FREEASTRO_BASE not set");
-  const key = process.env.FREEASTRO_API_KEY || "";
-  const style = (process.env.FREEASTRO_AUTH_STYLE || "x-api-key").toLowerCase();
-  const headers = { "Content-Type": "application/json" };
-  if (key) {
-    if (style === "bearer") headers["Authorization"] = `Bearer ${key}`;
-    else headers["x-api-key"] = key;
-  }
-  return { url, headers };
+function taiwanFallbackUtcOffset(lat, lon, given) {
+  if (given !== undefined && given !== null && given !== '') return given;
+  if (lat >= 20 && lat <= 26 && lon >= 119 && lon <= 123) return 8;
+  return given;
 }
 
 exports.handler = async (event) => {
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 204, headers: CORS, body: '' };
+  }
+  if (event.httpMethod !== 'POST') {
+    return { statusCode: 405, headers: CORS, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+  }
+
   try {
-    if (event.httpMethod !== "POST") return json(405, { error: "method_not_allowed" });
-    const input = safeJson(event.body);
-    const rawDate = (input.date || "").replace(/[\/.]/g, "-");
-    const [y, m, d] = rawDate.split("-").map(Number);
-    const [hh, mm] = String(input.time || "").split(":").map(Number);
-    const lat = pickNumber(input.latitude, input.lat);
-    const lon = pickNumber(input.longitude, input.lon);
-    if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) {
-      return json(400, { error: "invalid_datetime", message: "date/time required: YYYY-MM-DD / HH:MM" });
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      return json(400, { error: "invalid_coords", message: "latitude/longitude required (numbers)" });
+    const payload = JSON.parse(event.body || '{}');
+    const {
+      date,       // 'YYYY-MM-DD'
+      time,       // 'HH:MM' (24h)
+      utc_offset, // number 或字串（小時，例 8 或 -5.5）
+      latitude,
+      longitude,
+      house_system, // 'placidus'...
+      lang,         // 'zh' | 'en' ...
+      name,         // optional
+    } = payload;
+
+    if (!date || !time || latitude == null || longitude == null || !house_system || !lang) {
+      throw new Error('缺少必要欄位：date、time、latitude、longitude、house_system、lang');
     }
 
-    const { tzString, tzHours } = normalizeTz(input.timezone, input.utc_offset);
-    const body = {
-      date: `${y}-${pad(m)}-${pad(d)}`,
-      time: `${pad(hh)}:${pad(mm)}`,
-      latitude: lat,
-      longitude: lon,
-      timezone: tzString,
-      utc_offset: tzHours ?? 0,
-      house_system: String(input.house_system || "placidus"),
-      lang: String(input.lang || "zh")
+    const off = taiwanFallbackUtcOffset(Number(latitude), Number(longitude), utc_offset);
+
+    // 目標 API
+    const base = process.env.FREEASTRO_URL_PLANETS
+      || (process.env.FREEASTRO_BASE ? `${process.env.FREEASTRO_BASE}/western/planets` : '');
+    if (!base) throw new Error('FREEASTRO_URL_PLANETS 或 FREEASTRO_BASE 尚未設定');
+
+    let url = base;
+    let body = {
+      date,
+      time,
+      utc_offset: off,
+      latitude: Number(latitude),
+      longitude: Number(longitude),
+      house_system,
+      lang,
+      name,
     };
 
-    const { url, headers } = makeUpstream();
-    const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body) });
-    if (r.ok) {
-      const data = await r.json();
-      return json(200, data);
-    }
-    const text = await r.text();
-    return json(r.status, { error: "upstream", status: r.status, detail: text });
-  } catch (e) {
-    return json(500, { error: "server", message: String(e && e.message || e) });
+    let options = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    };
+
+    ({ url, options } = withAuth(url, options));
+
+    const res = await doFetch(url, options);
+    const text = await res.text();
+    // 嘗試轉 JSON；若失敗就包成字串
+    let data;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    return {
+      statusCode: res.status,
+      headers: { ...CORS, 'content-type': 'application/json' },
+      body: JSON.stringify(data),
+    };
+  } catch (err) {
+    return {
+      statusCode: 200,
+      headers: { ...CORS, 'content-type': 'application/json' },
+      body: JSON.stringify({ ok: false, error: String(err.message || err) }),
+    };
   }
 };
