@@ -1,76 +1,64 @@
 // netlify/functions/freeastro-planets.js
-import fetch from "node-fetch";
+const fetch = require('node-fetch');
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
   try {
-    const payload = JSON.parse(event.body || "{}");
+    const BASE = (process.env.FREEASTRO_BASE || '').trim().replace(/\/+$/, '');
+    let PATH = (process.env.FREEASTRO_URL_PLANETS || 'planets').trim();
 
-    if (!payload.date || !payload.time || !payload.latitude || !payload.longitude) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: "Missing required fields (date, time, latitude, longitude)" }),
-      };
-    }
+    // 正規化 path
+    if (!PATH.startsWith('/')) PATH = '/' + PATH;
 
-    const apiKey = process.env.FREEASTRO_API_KEY;
-    const baseUrl = process.env.FREEASTRO_URL_PLANETS || `${process.env.FREEASTRO_BASE}/planets`;
-    
+    // 如果 BASE 是空，fallback 到預設
+    const base = BASE || 'https://json.freeastrologyapi.com/western';
+    const fullUrl = `${base}${PATH}`;
 
-    const BASE = (process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com/western').replace(/\/$/, '');
-    const EP   = process.env.FREEASTRO_URL_PLANETS || '/planets';
-    const URL  = `${BASE}${EP.startsWith('/') ? EP : '/' + EP}`;
-    console.log('[Planets] URL =>', URL);
+    // ---- 參數組裝 ----
+    const body = JSON.parse(event.body || '{}');
 
-    const headers = { "Content-Type": "application/json" };
-    headers["Authorization"] = `Bearer ${apiKey}`;
+    // 你用 query 驗證（建議）
+    const apiKey = (process.env.FREEASTRO_API_KEY || '').trim();
+    const url = new URL(fullUrl);
+    if (apiKey) url.searchParams.set('api_key', apiKey);
 
-    // 第一次嘗試：header 模式
-    let res = await fetch(baseUrl, {
-      method: "POST",
-      headers,
+    const payload = {
+      year: body.year,
+      month: body.month,
+      day: body.day,
+      hour: body.hour,
+      minute: body.minute,
+      lat: body.lat,
+      lon: body.lon,
+      tzone: body.tz || body.tzone || body.timezone || 0,
+      house_system: body.house_system || 'placidus',
+      lang: body.lang || 'en',
+    };
+
+    console.log('[Planets] BASE =', base);
+    console.log('[Planets] PATH =', PATH);
+    console.log('[Planets] URL  =', url.toString());
+
+    const resp = await fetch(url.toString(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      // 若要測 header 認證，把上面的 query 拿掉，改這裡：
+      // headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     });
 
-    // 如果403 或 401，改用 query 模式
-    if (res.status === 403 || res.status === 401) {
-      console.warn(`[Planets] ⚠️ Header auth failed (${res.status}), retry with query auth`);
-      let url = baseUrl.includes("?")
-        ? `${baseUrl}&api_key=${apiKey}`
-        : `${baseUrl}?api_key=${apiKey}`;
-
-      res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+    const text = await resp.text();
+    if (!resp.ok) {
+      console.error('[Planets] Non-OK', resp.status, text);
+      return { statusCode: resp.status, body: text || `HTTP ${resp.status}` };
     }
 
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
-
-    if (!res.ok) {
-      console.error(`[Planets] ❌ ${res.status}`, data);
-      return {
-        statusCode: res.status,
-        body: JSON.stringify({ error: data.message || "Planets request failed", raw: data }),
-      };
-    }
-
-    console.log(`[Planets] ✅ OK`);
     return {
       statusCode: 200,
-      body: JSON.stringify(data),
+      body: text,
+      headers: { 'Content-Type': 'application/json' },
     };
   } catch (err) {
-    console.error("[Planets] Exception:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Internal server error", details: err.message }),
-    };
+    console.error('[Planets] Exception:', err);
+    return { statusCode: 500, body: JSON.stringify({ message: err.message || 'Internal error' }) };
   }
 };
