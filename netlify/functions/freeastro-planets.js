@@ -14,6 +14,12 @@ export const handler = async (event) => {
 
     const apiKey = process.env.FREEASTRO_API_KEY;
     const baseUrl = process.env.FREEASTRO_URL_PLANETS || `${process.env.FREEASTRO_BASE}/planets`;
+    
+
+    const BASE = (process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com/western').replace(/\/$/, '');
+    const EP   = process.env.FREEASTRO_URL_PLANETS || '/planets';
+    const URL  = `${BASE}${EP.startsWith('/') ? EP : '/' + EP}`;
+    console.log('[Planets] URL =>', URL);
 
     const headers = { "Content-Type": "application/json" };
     headers["Authorization"] = `Bearer ${apiKey}`;
