@@ -1,64 +1,71 @@
-// netlify/functions/freeastro-planets.js
-const fetch = require('node-fetch');
+// ✅ 最終穩定版：完全依 FreeAstrologyAPI 官方文件
+// Endpoint: https://json.freeastrologyapi.com/western/planets
+// Auth: Basic <API_KEY>
+// Node18 原生 fetch 版本
 
 exports.handler = async (event) => {
   try {
-    const BASE = (process.env.FREEASTRO_BASE || '').trim().replace(/\/+$/, '');
-    let PATH = (process.env.FREEASTRO_URL_PLANETS || 'planets').trim();
+    const API_KEY = process.env.FREEASTRO_API_KEY;
+    const BASE_URL = process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com/western/planets';
 
-    // 正規化 path
-    if (!PATH.startsWith('/')) PATH = '/' + PATH;
+    if (!API_KEY) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Missing FREEASTRO_API_KEY in environment' }),
+      };
+    }
 
-    // 如果 BASE 是空，fallback 到預設
-    const base = BASE || 'https://json.freeastrologyapi.com/western';
-    const fullUrl = `${base}${PATH}`;
-
-    // ---- 參數組裝 ----
+    // 解析前端傳入參數
     const body = JSON.parse(event.body || '{}');
-
-    // 你用 query 驗證（建議）
-    const apiKey = (process.env.FREEASTRO_API_KEY || '').trim();
-    const url = new URL(fullUrl);
-    if (apiKey) url.searchParams.set('api_key', apiKey);
-
     const payload = {
-      year: body.year,
-      month: body.month,
-      day: body.day,
-      hour: body.hour,
-      minute: body.minute,
-      lat: body.lat,
-      lon: body.lon,
-      tzone: body.tz || body.tzone || body.timezone || 0,
-      house_system: body.house_system || 'placidus',
-      lang: body.lang || 'en',
+      year: Number(body.year) || 1990,
+      month: Number(body.month) || 1,
+      day: Number(body.day) || 1,
+      hour: Number(body.hour) || 12,
+      min: Number(body.minute) || 0,
+      lat: Number(body.lat) || 22.99,
+      lon: Number(body.lon) || 120.21,
+      tzone: Number(body.tz) || 8.0,
     };
 
-    console.log('[Planets] BASE =', base);
-    console.log('[Planets] PATH =', PATH);
-    console.log('[Planets] URL  =', url.toString());
+    // Debug 輸出
+    console.log('[Planets] Request URL:', BASE_URL);
+    console.log('[Planets] Payload:', payload);
 
-    const resp = await fetch(url.toString(), {
+    const response = await fetch(BASE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${API_KEY}`,  // ✅ 官方要求格式
+      },
       body: JSON.stringify(payload),
-      // 若要測 header 認證，把上面的 query 拿掉，改這裡：
-      // headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     });
 
-    const text = await resp.text();
-    if (!resp.ok) {
-      console.error('[Planets] Non-OK', resp.status, text);
-      return { statusCode: resp.status, body: text || `HTTP ${resp.status}` };
+    if (!response.ok) {
+      const text = await response.text();
+      console.error('[Planets] Error:', response.status, text);
+      return {
+        statusCode: response.status,
+        body: JSON.stringify({
+          error: 'API request failed',
+          status: response.status,
+          detail: text,
+        }),
+      };
     }
+
+    const data = await response.json();
+    console.log('[Planets] Success:', data);
 
     return {
       statusCode: 200,
-      body: text,
-      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ok: true, data }),
     };
   } catch (err) {
     console.error('[Planets] Exception:', err);
-    return { statusCode: 500, body: JSON.stringify({ message: err.message || 'Internal error' }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Internal server error', detail: err.message }),
+    };
   }
 };

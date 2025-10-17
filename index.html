@@ -3,334 +3,270 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Astro-Natal (Netlify Functions + FreeAstrology API)</title>
+  <title>Astro Natal Chart Generator</title>
   <style>
     :root{
-      --bg:#0f1420; --panel:#131a2a; --text:#e8eefc; --muted:#9db0d1;
-      --primary:#6b5cff; --primary-2:#7b6cff; --danger:#ff6b6b; --ok:#33d692;
-      --border:#24304a;
+      --bg:#0d0d12;
+      --panel:#12121a;
+      --ink:#e9e9ff;
+      --muted:#9aa0a6;
+      --accent:#6c63ff;
+      --accent-2:#7a6bff;
+      --danger:#ff5c7a;
+      --good:#2ecc71;
+      --radius:14px;
     }
     html,body{height:100%}
     body{
-      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-      Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
-      "Segoe UI Emoji"; background:var(--bg); color:var(--text);
+      margin:0; background:var(--bg); color:var(--ink);
+      font:16px/1.5 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
     }
-    .wrap{max-width:1120px; margin:24px auto; padding:0 16px}
-    h1{margin:0 0 18px; font-size:28px}
-    .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px 16px}
-    .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
-    @media (max-width:880px){ .grid{grid-template-columns:1fr} }
-    label{display:block; font-size:14px; color:var(--muted); margin:6px 0 6px}
+    .wrap{max-width:1080px; margin:40px auto; padding:0 20px}
+    h1{
+      font-weight:800; letter-spacing:.3px; margin:6px 0 22px;
+      font-size: clamp(26px, 3.6vw, 40px);
+      display:flex; gap:12px; align-items:center;
+    }
+    .card{
+      background:var(--panel); border-radius:var(--radius);
+      padding:22px; box-shadow:0 10px 30px rgba(0,0,0,.2);
+    }
+    .row{display:flex; flex-direction:column; gap:10px; margin:18px 0}
+    label{font-weight:700}
+    .hint{color:var(--muted); font-size:14px}
     input,select,button,textarea{
-      width:100%; box-sizing:border-box; border-radius:10px; border:1px solid var(--border);
-      background:#0c1220; color:var(--text); padding:12px 14px; font-size:16px; outline:none;
+      width:100%; box-sizing:border-box;
+      padding:14px 16px; border-radius:12px; border:1px solid #2a2a38;
+      background:#161625; color:var(--ink); font-size:16px; outline:none;
     }
-    input:focus,select:focus,textarea:focus{border-color:#3a4e7a}
-    .row{display:flex; gap:16px; flex-wrap:wrap}
-    .col{flex:1 1 320px; min-width:0}
-    .tight{display:flex; gap:8px}
-    .btn{cursor:pointer; background:var(--primary); border:none}
-    .btn:hover{background:var(--primary-2)}
-    .btn-ghost{background:transparent; border:1px solid var(--border)}
-    .btn-danger{background:#d04545}
-    .hint{font-size:13px; color:var(--muted); margin-top:6px}
-    .diag{margin-top:18px; background:#0a0e18; border:1px solid var(--border); border-radius:10px; padding:12px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; white-space:pre-wrap; line-height:1.45}
-    .ok{color:var(--ok)} .err{color:var(--danger)}
-    /* 地理查詢列不擠壓，窄螢幕會自動換行 */
-    .form-row{display:flex; gap:16px; flex-wrap:wrap}
-    .form-row .col{flex:1 1 320px}
-    #btnGeo{width:120px}
+    input::placeholder{color:#6f7480}
+    .actions{display:flex; gap:12px; flex-wrap:wrap; margin-top:16px}
+    .btn{
+      background:var(--accent); border:none; color:white; font-weight:800; cursor:pointer;
+      padding:14px 18px; border-radius:12px; min-width:200px; text-align:center;
+    }
+    .btn.secondary{background:#23233a}
+    .btn:disabled{opacity:.6; cursor:not-allowed}
+    .grid{display:grid; gap:16px}
+    @media (min-width:880px){
+      .grid.two{grid-template-columns:1fr 1fr}
+    }
+    .log{
+      white-space:pre-wrap; background:#0f0f17; border-radius:12px; padding:14px; font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      color:#c9ced8; font-size:13px; max-height:280px; overflow:auto; border:1px solid #23233a;
+    }
+    .ok{color:var(--good)} .bad{color:var(--danger)}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Astro-Natal</h1>
+    <h1>🪐 Astro Natal Chart Generator</h1>
 
     <div class="card">
-      <div class="grid">
-        <div>
-          <label>姓名（可選）</label>
-          <input id="name" placeholder="your name (optional)" />
-        </div>
-        <div>
-          <label>出生日期（YYYY/MM/DD）</label>
-          <input id="date" type="date" />
-        </div>
+      <div class="row">
+        <label for="time">出生時間（24h HH:MM）</label>
+        <input id="time" type="time" step="60" value="20:50" />
+        <div class="hint">若瀏覽器顯示「上午/下午」，也可以直接輸入 08:50 或 20:50，我們會自動轉 24 小時。</div>
+      </div>
 
+      <div class="row grid two">
         <div>
-          <label>出生時間（24h HH:MM）</label>
-          <input id="time" type="text" placeholder="例如 08:50 或 下午 08:50 / PM 8:50" />
-          <div class="hint">若瀏覽器顯示「上午/下午」，也可以直接輸入 08:50 或 20:50，我們會自動轉 24 小時。</div>
+          <label for="tz">時區（例如 8 或 Asia/Taipei）</label>
+          <input id="tz" inputmode="text" placeholder="建議：8（台灣）或 Asia/Taipei" />
+          <div class="actions" style="margin-top:10px">
+            <button class="btn secondary" id="btnSuggestTz">自動填入建議</button>
+          </div>
+          <div class="hint">可填正負整數（如 8、-5），或 IANA 名稱（如 Asia/Taipei）。</div>
         </div>
-
         <div>
-          <label>時區（IANA 或 +HH、例：8 或 Asia/Taipei）</label>
-          <input id="tz" type="text" placeholder="建議：8（台灣）或 Asia/Taipei" />
-        </div>
-
-        <div>
-          <label>語言 lang（必填）</label>
+          <label for="lang">語言 lang（必填）</label>
           <select id="lang">
             <option value="zh" selected>zh（中文）</option>
             <option value="en">en（English）</option>
+            <option value="ja">ja（日本語）</option>
           </select>
         </div>
+      </div>
 
+      <div class="row">
+        <label for="house">宮位系統 house_system（必填）</label>
+        <select id="house">
+          <option value="placidus" selected>placidus（Placidus）</option>
+          <option value="whole_sign">whole_sign（Whole Sign）</option>
+          <option value="koch">koch（Koch）</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="keyword">地名關鍵字</label>
+        <input id="keyword" placeholder="例如：tainan, taiwan" />
+        <div class="actions">
+          <button id="btnGeo" class="btn secondary">查經緯度</button>
+        </div>
+      </div>
+
+      <div class="row grid two">
         <div>
-          <label>宮位系統 house_system（必填）</label>
-          <select id="house">
-            <option value="placidus" selected>placidus（Placidus）</option>
-            <option value="whole">whole-sign</option>
-            <option value="koch">koch</option>
-          </select>
+          <label for="lat">緯度 latitude（度）</label>
+          <input id="lat" placeholder="22.9912348" />
+        </div>
+        <div>
+          <label for="lon">經度 longitude（度）</label>
+          <input id="lon" placeholder="120.184982" />
         </div>
       </div>
 
-      <div class="form-row" style="margin-top:14px">
-        <div class="col">
-          <label>地名關鍵字</label>
-          <input id="keyword" placeholder="例如：Tainan, Taiwan" />
-        </div>
-        <div class="col">
-          <label>&nbsp;</label>
-          <button id="btnGeo" class="btn">查經緯度</button>
-        </div>
+      <div class="actions">
+        <button id="btnOne" class="btn">產生星盤圖（行星→輪盤，一鍵）</button>
+        <button id="btnClear" class="btn secondary">清空輸入</button>
       </div>
 
-      <div class="row" style="margin-top:12px">
-        <div class="col">
-          <label>緯度 latitude（度）</label>
-          <input id="lat" type="text" placeholder="22.99083" />
-        </div>
-        <div class="col">
-          <label>經度 longitude（度）</label>
-          <input id="lon" type="text" placeholder="120.21333" />
-        </div>
+      <div class="row">
+        <label>診斷訊息</label>
+        <div id="log" class="log"></div>
       </div>
-
-      <div class="row" style="margin-top:18px">
-        <div class="col">
-          <button id="btnFlow" class="btn" title="依序呼叫 planets→wheel（含節流與退避重試）">
-            產生星盤圖（行星→輪盤，一鍵）
-          </button>
-        </div>
-        <div class="col">
-          <button id="btnClear" class="btn-ghost">清空輸入</button>
-        </div>
-      </div>
-
-      <div class="diag" id="diag" aria-live="polite"></div>
     </div>
   </div>
 
-  <script>
-    // ===== 基本工具 =====
-    const $ = (sel)=>document.querySelector(sel);
-    const diag = $('#diag');
-    function log(msg, cls){
-      const t = new Date().toLocaleTimeString();
-      diag.innerHTML += `${cls?`<span class="${cls}">`:``}[${t}] ${msg}${cls?`</span>`:``}\n`;
-      diag.scrollTop = diag.scrollHeight;
-    }
-    function setBusy(on){
-      [ '#btnGeo', '#btnFlow', '#btnClear' ].forEach(id=>{
-        const el=$(id); if(!el) return; el.disabled = !!on;
-        el.style.opacity = on?0.6:1;
-        el.style.cursor = on?'not-allowed':'pointer';
-      })
-    }
+<script>
+  // 小工具：簡單 log
+  const $ = (q)=>document.querySelector(q);
+  const logBox = $('#log');
+  function log(msg, cls=''){ const t = new Date().toLocaleTimeString(); logBox.innerHTML += `[${t}] ${cls?`<span class="${cls}">`:''}${msg}${cls?'</span>':''}\n`; logBox.scrollTop = logBox.scrollHeight; }
+  function setBusy(b=true){ $('#btnOne').disabled=b; $('#btnGeo').disabled=b; }
 
-    // ===== 時間正規化（支援「上午/下午 / AM/PM」→ 24h） =====
-    function normalizeTimeTo24h(raw){
-      if(!raw) return null;
-      let s = String(raw).trim();
-      // 先把中文上午/下午換成 AM/PM
-      s = s.replace(/上午/gi,' AM ').replace(/下午/gi,' PM ');
-      // 冒號與空白清理
-      s = s.replace(/\s+/g,' ').replace(/：/g,':').trim();
-
-      // 取出 am/pm 標記
-      const isAM = /\bam\b/i.test(s);
-      const isPM = /\bpm\b/i.test(s);
-
-      // 取時分
-      const m = s.match(/(\d{1,2})\s*:\s*(\d{1,2})/);
-      if(!m) return null;
-      let hh = parseInt(m[1],10);
-      let mm = parseInt(m[2],10);
-      if(isNaN(hh)||isNaN(mm)) return null;
-
-      // AM/PM 規則
-      if(isPM && hh < 12) hh += 12;
-      if(isAM && hh === 12) hh = 0;
-
-      // 邊界保護
-      hh = Math.max(0,Math.min(23,hh));
-      mm = Math.max(0,Math.min(59,mm));
-      return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
-    }
-
-    // ===== 台灣座標 → 自動帶入時區 +8 =====
-    function maybeFillTaiwanTZ(){
-      try{
-        const lat = parseFloat($('#lat').value);
-        const lon = parseFloat($('#lon').value);
-        const tzEl = $('#tz'); if(!tzEl) return;
-        if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-        const inTaiwan = (lat>=21.5 && lat<=25.6 && lon>=119.3 && lon<=122.1);
-        if(inTaiwan && !String(tzEl.value||'').trim()){
-          tzEl.value = '8';
-          log('偵測台灣座標 → 已自動填入時區 8（台灣）','ok');
-        }
-      }catch{}
-    }
-    ['#lat','#lon'].forEach(id=>{
-      const el=$(id); if(el) el.addEventListener('change', maybeFillTaiwanTZ);
-    });
-
-    // ===== Fetch 包裝：節流 + 指數退避重試 =====
-    const gate = {
-      last:0, minGap: 500,        // 每次呼叫至少間隔 0.5 秒
-    };
-    async function callFn(url, body, opt={}){
-      const { maxRetries=3, initialDelay=600 } = opt;
-      // 節流：與上次間隔不足則等待
-      const now = Date.now();
-      const wait = gate.last + gate.minGap - now;
-      if(wait>0) await new Promise(r=>setTimeout(r,wait));
-      gate.last = Date.now();
-
-      let delay = initialDelay;
-      for(let attempt=0; attempt<=maxRetries; attempt++){
-        const res = await fetch(url,{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify(body||{})
-        });
-        const text = await res.text();
-        let data = null; try{ data = JSON.parse(text) }catch{ data = { raw:text } }
-
-        if(res.ok) return data;
-
-        // 可重試的狀況：429 / 5xx
-        if((res.status===429 || res.status>=500) && attempt<maxRetries){
-          log(`⚠️ 伺服器忙碌或限流（${res.status}），${Math.round(delay)}ms 後重試…`);
-          await new Promise(r=>setTimeout(r, delay));
-          delay *= 1.8;
-          continue;
-        }
-        // 其他錯誤（如 403/400）直接拋出
-        const msg = (data && (data.message||data.error||data.reason)) || `HTTP ${res.status}`;
-        const e = new Error(msg); e.status=res.status; e.data=data; throw e;
+  // 自動建議時區
+  $('#btnSuggestTz').addEventListener('click', ()=>{
+    try{
+      const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      const offsetHrs = -new Date().getTimezoneOffset()/60; // 當前本機偏移（可能有小數）
+      // 若偵測為台灣，直接填 8
+      if(/taipei/i.test(tzName)) {
+        $('#tz').value = '8';
+        log(`時區已套用建議：8（偵測到 ${tzName}）`,'ok');
+      }else{
+        // 取整數偏移
+        const v = Math.round(offsetHrs);
+        $('#tz').value = String(v);
+        log(`時區已套用建議：${v}（偵測到 ${tzName||'未知'}）`,'ok');
       }
-      throw new Error('重試仍失敗');
+    }catch(e){
+      $('#tz').placeholder = '8（台灣）或 Asia/Taipei';
+      log('無法偵測系統時區，請手動輸入 8 或 Asia/Taipei','bad');
     }
+  });
 
-    // ===== 地理查詢 =====
-    async function callGeo(){
+  // 將 "8" 正規化為 "+8"（若後端需要時）
+  function normalizeTZ(raw){
+    if(!raw) return '';
+    const s = String(raw).trim();
+    if(/^[-+]/.test(s)) return s;       // +8 / -5
+    if(/^[0-9]+$/.test(s)) return `+${s}`; // 8 => +8
+    return s; // IANA 名稱
+  }
+
+  // 查地理（避免 Missing query）
+  $('#btnGeo').addEventListener('click', async ()=>{
+    try{
       setBusy(true);
-      try{
-        $('#diag').innerHTML='';
-        const q = $('#keyword').value.trim();
-        if(!q) throw new Error('請輸入地名關鍵字');
-        log('查詢地理…');
-        const body = { q };
-        const data = await callFn('/.netlify/functions/freeastro-geo', body, {maxRetries:2});
-        if(!data || !data.lat || !data.lon) throw new Error('地理查詢失敗');
-        $('#lat').value = data.lat;
-        $('#lon').value = data.lon;
-        maybeFillTaiwanTZ();
-        log(`地理 OK：${data.lat}, ${data.lon}`,'ok');
-      }catch(err){
-        log(`地理查詢失敗：${err.message || err}`,'err');
-      }finally{
-        setBusy(false);
-      }
-    }
+      const q = $('#keyword').value.trim();
+      if(!q){ log('請輸入地名關鍵字','bad'); return; }
+      log('查詢地理…');
 
-    // ===== planets → wheel 一條龍 =====
-    async function runFlow(){
+      const res = await fetch('/.netlify/functions/freeastro-geo', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ q })
+      });
+      if(!res.ok){
+        const msg = await res.text();
+        throw new Error(`地理查詢失敗：${msg||res.status}`);
+      }
+      const data = await res.json();
+      // 期待回傳格式：{ lat, lon, display_name, ... }
+      if(data && data.lat && data.lon){
+        $('#lat').value = String(data.lat);
+        $('#lon').value = String(data.lon);
+        log(`地理 OK：${data.display_name || ''}`,'ok');
+      }else{
+        log('未取得經緯度，請換一個關鍵字再試','bad');
+      }
+    }catch(err){
+      log(`地理查詢失敗：${err.message}`,'bad');
+    }finally{
+      setBusy(false);
+    }
+  });
+
+  // 一鍵（Planets → 你之後可接 Wheel）
+  $('#btnOne').addEventListener('click', async ()=>{
+    try{
       setBusy(true);
-      try{
-        $('#diag').innerHTML='';
-        // 取表單
-        const name  = $('#name').value.trim();
-        const date  = $('#date').value.trim();
-        let   time  = $('#time').value.trim();
-        const tz    = $('#tz').value.trim();
-        const lang  = $('#lang').value;
-        const house = $('#house').value;
-        const lat   = parseFloat($('#lat').value);
-        const lon   = parseFloat($('#lon').value);
+      log('呼叫 Planets…');
 
-        if(!date)  throw new Error('日期必填');
-        if(!time)  throw new Error('時間必填');
-        if(!lang)  throw new Error('語言必填');
-        if(!house) throw new Error('宮位系統必填');
-        if(!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error('需先填好經緯度');
+      // 擷取欄位
+      let time = $('#time').value;         // "20:50"
+      const tzRaw = $('#tz').value;
+      const tz = normalizeTZ(tzRaw);
+      const lang = $('#lang').value || 'zh';
+      const house = $('#house').value || 'placidus';
+      const lat = parseFloat($('#lat').value || '');
+      const lon = parseFloat($('#lon').value || '');
 
-        // 時間正規化
-        time = normalizeTimeTo24h(time);
-        if(!time) throw new Error('時間格式錯誤（請輸入 HH:MM 或 AM/PM/上午/下午）');
-
-        // 台灣兜底時區
-        maybeFillTaiwanTZ();
-        if(!tz) log('⚠️ 尚未填時區，可能導致時差有誤','err');
-
-        const payload = { name, date, time, utc_offset: tz, latitude:lat, longitude:lon, house_system:house, lang };
-
-        // 1) planets
-        log('呼叫Planets…');
-        const planets = await callFn('/.netlify/functions/freeastro-planets', payload, {maxRetries:3});
-        log('Planets OK','ok');
-
-        // 2) wheel（把 planets 的必要欄位帶過去）
-        log('呼叫Wheel…');
-        const wheelReq = { ...payload, planets };
-        const wheel = await callFn('/.netlify/functions/freeastro-wheel', wheelReq, {maxRetries:3});
-        log('Wheel OK','ok');
-
-        // 畫面上若你有 <img id="wheelImg"> 可顯示
-        if(wheel && wheel.imageDataUrl){
-          let img = document.getElementById('wheelImg');
-          if(!img){ img = document.createElement('img'); img.id='wheelImg'; img.style.marginTop='12px'; img.style.maxWidth='100%'; diag.parentElement.appendChild(img); }
-          img.src = wheel.imageDataUrl;
-          log('已產生星盤圖（下方圖片）','ok');
-        }else{
-          log('已完成，但沒有收到 imageDataUrl（檢查後端回傳）','err');
-        }
-      }catch(err){
-        const status = err.status || '';
-        const tip = (status===403) ? '（疑似 API 金鑰/授權或來源限制，請檢查 Functions 環境變數與供應商白名單）' : '';
-        log(`一鍵流程失敗：${status?`HTTP ${status} `:''}${err.message} ${tip}`.trim(),'err');
-      }finally{
-        setBusy(false);
+      if(!time){ log('請輸入時間（HH:MM）','bad'); return; }
+      if(!tz){ log('請輸入時區（數字或 IANA 名稱）','bad'); return; }
+      if(Number.isNaN(lat) || Number.isNaN(lon)){
+        log('請先查詢/填寫經緯度','bad'); return;
       }
-    }
 
-    function clearAll(){
-      ['#name','#date','#time','#tz','#keyword','#lat','#lon'].forEach(id=>{ const el=$(id); if(el) el.value=''; });
-      $('#lang').value='zh'; $('#house').value='placidus';
-      $('#diag').innerHTML='';
-      const img=document.getElementById('wheelImg'); if(img) img.remove();
-    }
+      // 組裝 body
+      const body = {
+        name: 'guest',
+        lang, house_system: house,
+        hour: +time.split(':')[0], minute: +time.split(':')[1],
+        lat, lon, tz
+      };
 
-    // 綁定
-    $('#btnGeo').addEventListener('click', callGeo);
-    $('#btnFlow').addEventListener('click', runFlow);
-    $('#btnClear').addEventListener('click', clearAll);
+      const res = await fetch('/.netlify/functions/freeastro-planets', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
 
-    // 預設今天日期、示例時間
-    (function init(){
-      if(!$('#date').value){
-        const d=new Date();
-        const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
-        $('#date').value=`${y}-${m}-${dd}`;
+      if(res.status === 403){
+        log('一鍵流程失敗：HTTP 403 Forbidden（疑似 API 金鑰/授權或來源限制，請檢查 Functions 環境變數與供應商白名單）','bad');
+        return;
       }
-      if(!$('#time').value) $('#time').value='08:50';
-    })();
-  </script>
+      if(!res.ok){
+        const t = await res.text();
+        throw new Error(`HTTP ${res.status} ${t || res.statusText}`);
+      }
+      const data = await res.json();
+      log('Planets 成功 ✅','ok');
+
+      // TODO: 若你要接輪盤，再呼叫 /freeastro-wheel
+      // 這裡先把 Planet 的少量摘要印出即可
+      log(JSON.stringify(data).slice(0, 1200) + (JSON.stringify(data).length>1200?' ...':''));      
+    }catch(err){
+      log(`一鍵流程失敗：${err.message}`,'bad');
+    }finally{
+      setBusy(false);
+    }
+  });
+
+  // 清空
+  $('#btnClear').addEventListener('click', ()=>{
+    $('#keyword').value='';
+    $('#lat').value=''; $('#lon').value='';
+    $('#log').innerHTML='';
+  });
+
+  // 預設：自動建議時區一次（可拿掉）
+  (function autoSuggestOnce(){
+    try{
+      const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      if(/taipei/i.test(tzName)){ $('#tz').value = '8'; }
+      else { $('#tz').placeholder = '建議：8（台灣）或 Asia/Taipei'; }
+    }catch{}
+  })();
+</script>
 </body>
 </html>

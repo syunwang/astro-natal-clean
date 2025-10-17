@@ -1,58 +1,55 @@
 // netlify/functions/freeastro-geo.js
-
-const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
-
-const DEFAULT_GEO = 'https://nominatim.openstreetmap.org/search?format=json&q=';
-
-// simple backoff retry
-async function tryFetch(url, opts, retries = 2, backoff = 600) {
-  try {
-    const res = await fetch(url, opts);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res;
-  } catch (err) {
-    if (retries <= 0) throw err;
-    await new Promise(r => setTimeout(r, backoff));
-    return tryFetch(url, opts, retries - 1, backoff * 2);
-  }
-}
+// ✅ Node 18 內建 fetch
+// ✅ 接收 { q: 'tainan, taiwan' }
+// ✅ 回傳 lat / lon / display_name
 
 exports.handler = async (event) => {
   try {
     const { q } = JSON.parse(event.body || '{}');
     if (!q) {
-      return { statusCode: 400, body: JSON.stringify({ message: '缺少地名關鍵字 q' }) };
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ message: 'Missing query' }),
+      };
     }
 
-    const GEO_BASE = process.env.FREEASTRO_GEO_URL || DEFAULT_GEO;
-    const url = `${GEO_BASE}${encodeURIComponent(q)}&addressdetails=1&limit=1`;
+    const base =
+      process.env.FREEASTRO_GEO_URL ||
+      'https://nominatim.openstreetmap.org/search?format=json&q=';
 
-    const headers = {
-      'User-Agent': 'astro-natal-app/1.0 (Netlify Function; contact: your-email@example.com)',
-      'Accept': 'application/json',
-    };
+    const url = base.includes('q=')
+      ? `${base}${encodeURIComponent(q)}`
+      : `${base}?q=${encodeURIComponent(q)}`;
 
-    console.log('[Geo] →', url);
+    const resp = await fetch(url, {
+      headers: { 'User-Agent': 'astro-natal (Netlify function)' },
+    });
 
-    const res = await tryFetch(url, { headers }, 2, 600);
-    const data = await res.json();
-
-    if (!Array.isArray(data) || data.length === 0) {
-      return { statusCode: 404, body: JSON.stringify({ message: '查無地點' }) };
+    if (!resp.ok) {
+      return { statusCode: resp.status, body: await resp.text() };
     }
 
-    const best = data[0];
+    const arr = await resp.json();
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return {
+        statusCode: 404,
+        body: JSON.stringify({ message: 'Location not found' }),
+      };
+    }
+
+    const best = arr[0];
     return {
       statusCode: 200,
       body: JSON.stringify({
-        ok: true,
-        lat: parseFloat(best.lat),
-        lon: parseFloat(best.lon),
+        lat: Number(best.lat),
+        lon: Number(best.lon),
         display_name: best.display_name,
-      })
+      }),
     };
   } catch (err) {
-    console.error('[Geo] Exception:', err);
-    return { statusCode: 500, body: JSON.stringify({ message: 'Internal error' }) };
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ message: err.message }),
+    };
   }
 };

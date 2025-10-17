@@ -1,61 +1,41 @@
 // netlify/functions/freeastro-wheel.js
-import fetch from 'node-fetch';
+// ✅ 產生星盤輪圖（wheel image）
+// ✅ 支援 query 或 header API key
+// ✅ 結果直接返回 JSON（含圖片URL或Base64）
 
-export const handler = async (event) => {
+exports.handler = async (event) => {
+  const DEBUG = String(process.env.FREEASTRO_DEBUG || '').toLowerCase() === 'true';
   try {
+    const BASE =
+      (process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com/western').trim();
+    const PATH = (process.env.FREEASTRO_URL_WHEEL || '/wheel').trim();
+    const API_KEY = (process.env.FREEASTRO_API_KEY || '').trim();
+    const AUTH_STYLE = (process.env.FREEASTRO_AUTH_STYLE || 'query').trim().toLowerCase();
+
     const payload = JSON.parse(event.body || '{}');
-    if (!payload.date || !payload.time || !payload.latitude || !payload.longitude) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'Missing required fields' }) };
-    }
 
-    const apiKey = process.env.FREEASTRO_API_KEY;
-    const wheelUrl = process.env.FREEASTRO_URL_WHEEL || `${process.env.FREEASTRO_BASE}/wheel`;
-    const authStyle = process.env.FREEASTRO_AUTH_STYLE || 'header';
+    let url;
+    if (/^https?:\/\//i.test(PATH)) url = new URL(PATH);
+    else url = new URL(`${BASE.replace(/\/$/, '')}/${PATH.replace(/^\//, '')}`);
 
-    let url = wheelUrl;
     const headers = { 'Content-Type': 'application/json' };
-
-    if (authStyle === 'header' && apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    } else if (authStyle === 'query' && apiKey) {
-      const sep = url.includes('?') ? '&' : '?';
-      url += `${sep}apikey=${apiKey}`;
+    if (API_KEY) {
+      if (AUTH_STYLE === 'header') headers['Authorization'] = `Bearer ${API_KEY}`;
+      else url.searchParams.set('api_key', API_KEY);
     }
 
-    console.log(`[Wheel] → ${url}`);
+    if (DEBUG) console.log('[Wheel] URL =>', url.toString());
 
-    const res = await fetch(url, {
+    const resp = await fetch(url.toString(), {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
     });
 
-    const text = await res.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
-
-    if (!res.ok) {
-      console.error(`[Wheel] ❌ ${res.status}`, data);
-      return {
-        statusCode: res.status,
-        body: JSON.stringify({ message: data.message || 'Wheel request failed', raw: data }),
-      };
-    }
-
-    console.log(`[Wheel] ✅ OK`);
-    return {
-      statusCode: 200,
-      body: JSON.stringify(data),
-    };
+    const text = await resp.text();
+    return { statusCode: resp.status, body: text };
   } catch (err) {
-    console.error('[Wheel] Exception:', err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: 'Internal error', details: err.message }),
-    };
+    console.error('[Wheel Error]', err);
+    return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
   }
 };

@@ -1,4 +1,13 @@
-# netlify.toml
 [functions]
-  directory = "netlify/functions"
   node_bundler = "esbuild"
+  
+  [functions.node_version]
+    runtime = "nodejs18.x"
+
+[build]
+  command = "npm run build"
+  publish = "."
+
+[dev]
+  port = 8888
+  functionsPort = 5050
