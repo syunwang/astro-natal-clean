@@ -9,10 +9,11 @@ exports.handler = async (event) => {
       return { statusCode: 405, body: JSON.stringify({ message: 'Method Not Allowed' }) };
     }
 
-    const BASE  = process.env.FREEASTRO_BASE;          // 例： https://json.freeastrologyapi.com/western
-    const PATH  = process.env.FREEASTRO_URL_PLANETS || '/planets';
+    const BASE = process.env.FREEASTRO_BASE?.replace(/\/+$/, '') || 'https://json.freeastrologyapi.com';
+    const PATH = (process.env.FREEASTRO_URL_PLANETS || 'western/planets').replace(/^\/+/, '');
     const API_KEY = process.env.FREEASTRO_API_KEY;
-
+    //const url = `${BASE.replace(/\/$/, '')}${PATH}`;
+      const URL  = `${BASE}/${PATH}`; 
     if (!BASE || !API_KEY) {
       return { statusCode: 500, body: JSON.stringify({ message: 'Missing FREEASTRO_BASE or FREEASTRO_API_KEY' }) };
     }
@@ -44,8 +45,7 @@ exports.handler = async (event) => {
       }
     }
 
-    const url = `${BASE.replace(/\/$/, '')}${PATH}`;
-
+    
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
