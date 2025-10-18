@@ -2,82 +2,110 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>產生星盤圖（行星→輪盤，一鍵）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>產生星盤圖（行星 → 輪盤，一鍵）</title>
   <style>
-    body {
-      background-color: #111;
-      color: #eee;
-      font-family: "Segoe UI", sans-serif;
-      margin: 2em;
-    }
-    input, select, button {
-      display: block;
-      margin: 0.5em 0;
-      padding: 0.5em;
-      font-size: 1em;
-      border-radius: 6px;
-      border: none;
-    }
-    button {
-      background-color: #7b5cff;
-      color: white;
-      cursor: pointer;
-    }
-    button:hover {
-      opacity: 0.9;
-    }
-    pre {
-      background-color: #222;
-      padding: 1em;
-      border-radius: 6px;
-      overflow-x: auto;
-      color: #9ef;
-    }
+    :root{--bg:#0f0f12;--card:#17171d;--text:#e9ecf1;--muted:#9aa3ad;--primary:#6c63ff;--accent:#2dd4bf}
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial}
+    .wrap{max-width:760px;margin:28px auto;padding:0 16px}
+    h1{font-weight:700;font-size:22px;margin:0 0 18px}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .row{background:var(--card);border-radius:12px;padding:12px 14px}
+    label{display:block;font-size:13px;color:var(--muted);margin:0 0 6px}
+    input,select,button{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #2a2f3a;background:#11141a;color:var(--text);font-size:15px}
+    input[readonly]{opacity:.75}
+    button.primary{background:var(--primary);border:none}
+    button.secondary{background:#222734;border:1px solid #2f3642}
+    .row-inline{display:grid;grid-template-columns:1fr auto;gap:10px}
+    .actions{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+    .log{white-space:pre-wrap;background:#0d1117;border:1px solid #222;border-radius:12px;padding:12px 14px;color:#a6e3ff;min-height:120px}
+    .badge{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#1d2330;color:#8ab4ff;margin-left:6px}
+    .right{display:flex;gap:8px}
+    .unlock{width:auto;padding:10px 12px}
+    .hint{color:var(--muted);font-size:12px;margin-top:6px}
+    @media (max-width:720px){.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
-  <h2>產生星盤圖（行星→輪盤，一鍵）</h2>
+  <div class="wrap">
+    <h1>🪐 產生星盤圖 <span class="badge">行星 → 輪盤，一鍵</span></h1>
 
-  <label>姓名（可選）</label>
-  <input id="name" type="text" placeholder="輸入姓名 (例：Sophia)" />
+    <div class="grid">
+      <div class="row">
+        <label>姓名（可選）</label>
+        <input id="name" type="text" placeholder="例如：Sophia" />
+      </div>
 
-  <label>出生日期 (YYYY-MM-DD)</label>
-  <input id="birthdate" type="text" placeholder="1990-01-01" />
+      <div class="row">
+        <label>時區（例如：8 代表 Asia/Taipei）</label>
+        <input id="tzone" type="number" step="1" value="8" />
+      </div>
 
-  <label>出生時間 (HH:MM)</label>
-  <input id="birthtime" type="text" placeholder="20:50" />
+      <div class="row">
+        <label>出生日期</label>
+        <input id="birthdate" type="date" />
+        <div class="hint">用原生日期選擇器，不需輸入「-」</div>
+      </div>
 
-  <label>時區 (例：8 表 Asia/Taipei)</label>
-  <input id="tzone" type="number" value="8" />
+      <div class="row">
+        <label>出生時間</label>
+        <input id="birthtime" type="time" />
+        <div class="hint">用原生時間選擇器，不需輸入「:」</div>
+      </div>
 
-  <label>地名關鍵字</label>
-  <input id="location" type="text" placeholder="tainan, taiwan" />
+      <div class="row row-inline">
+        <div>
+          <label>地名關鍵字</label>
+          <input id="location" type="text" placeholder="例如：tainan, taiwan" />
+        </div>
+        <div class="right">
+          <button id="btnGeo" class="secondary" title="查詢經緯度">查經緯度</button>
+        </div>
+      </div>
 
-  <label>緯度 latitude（度）</label>
-  <input id="latitude" type="number" step="0.000001" />
+      <div class="row row-inline">
+        <div>
+          <label>緯度 latitude（度）</label>
+          <input id="latitude" type="number" step="0.000001" readonly />
+        </div>
+        <button id="unlockLat" class="unlock secondary" title="允許手動修改緯度">解鎖</button>
+      </div>
 
-  <label>經度 longitude（度）</label>
-  <input id="longitude" type="number" step="0.000001" />
+      <div class="row row-inline">
+        <div>
+          <label>經度 longitude（度）</label>
+          <input id="longitude" type="number" step="0.000001" readonly />
+        </div>
+        <button id="unlockLon" class="unlock secondary" title="允許手動修改經度">解鎖</button>
+      </div>
 
-  <label>宮位系統 house_system</label>
-  <select id="house_system">
-    <option value="placidus" selected>placidus（普拉西杜斯）</option>
-    <option value="koch">koch（柯赫）</option>
-    <option value="whole">whole（整宮）</option>
-  </select>
+      <div class="row">
+        <label>宮位系統 house_system</label>
+        <select id="house_system">
+          <option value="placidus" selected>placidus（普拉西杜斯）</option>
+          <option value="koch">koch（柯赫）</option>
+          <option value="whole">whole（整宮）</option>
+        </select>
+      </div>
 
-  <label>語言 lang</label>
-  <select id="lang">
-    <option value="en">en (English)</option>
-    <option value="zh" selected>zh (中文)</option>
-  </select>
+      <div class="row">
+        <label>語言 lang</label>
+        <select id="lang">
+          <option value="zh" selected>zh（中文）</option>
+          <option value="en">en（English）</option>
+        </select>
+      </div>
+    </div>
 
-  <button id="generate">產生星盤圖（行星→輪盤，一鍵）</button>
-  <button id="clear">清空輸入</button>
+    <div class="actions">
+      <button id="generate" class="primary">產生星盤圖（行星→輪盤，一鍵）</button>
+      <button id="clear" class="secondary">清空輸入</button>
+    </div>
 
-  <h3>診斷訊息</h3>
-  <pre id="log"></pre>
+    <h3>診斷訊息</h3>
+    <div id="log" class="log">載入完成。請先輸入地名並按「查經緯度」，或直接手動輸入。</div>
+  </div>
 
   <script src="index.js"></script>
 </body>
