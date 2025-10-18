@@ -2,132 +2,184 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, maximum-scale=1"
+  />
   <title>Astro Natal Chart Generator</title>
   <style>
-    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
-      background:#0b0c10;color:#e6e6e6;margin:0;padding:24px}
-    label{display:block;margin:14px 0 6px}
-    input,select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #2c2f33;
-      background:#12141a;color:#e6e6e6}
-    button{background:#6b63ff;border:0;font-weight:700;cursor:pointer}
-    pre{background:#0f1115;border:1px solid #222;border-radius:10px;padding:12px;white-space:pre-wrap}
-    .row{max-width:820px;margin:0 auto}
+    body { background:#0d0f14; color:#eaeaea; font-family: system-ui, -apple-system, Segoe UI, Roboto, 'Noto Sans TC', Arial, 'Apple Color Emoji', 'Segoe UI Emoji'; }
+    .wrap { max-width: 900px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-weight: 700; letter-spacing: .5px; }
+    label { display:block; margin: 18px 0 6px; opacity:.85; }
+    input, select, button, textarea {
+      width: 100%; box-sizing: border-box; padding: 14px 16px; border-radius:12px;
+      border: 1px solid #2a2f3a; background: #121620; color: #fff; font-size:16px;
+    }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    .btn-primary {
+      background:#6d5efb; border:1px solid #6d5efb; cursor:pointer; font-weight:700;
+    }
+    .btn-ghost { background:#1a2030; border:1px solid #2a2f3a; }
+    .log { margin-top:18px; padding:16px; background:#0f1220; border-radius:12px; min-height:60px; white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .ok{ color:#57d99b } .warn{ color:#ffce5b } .err{ color:#ff6b6b }
   </style>
 </head>
 <body>
-  <div class="row">
+  <div class="wrap">
     <h1>🪐 Astro Natal Chart Generator</h1>
 
-    <label>姓名 / Name</label>
-    <input id="name" placeholder="請輸入姓名或標題 (e.g. Sophia Wang)" />
+    <label>姓名 name（可選）</label>
+    <input id="name" placeholder="e.g. John Doe" />
 
-    <label>地名（例：tainan, taiwan）</label>
-    <input id="place" placeholder="tainan, taiwan" />
+    <label>出生時間（24h HH:MM）</label>
+    <input id="time" placeholder="20:50" value="20:50" />
+
+    <label>時區 tzone（例如 8 代表 Asia/Taipei）</label>
+    <input id="tzone" type="number" step="0.25" value="8" />
 
     <label>語言 lang</label>
     <select id="lang">
-      <option value="zh">zh（中文）</option>
+      <option value="zh" selected>zh（中文）</option>
       <option value="en">en（English）</option>
+      <option value="es">es（Español）</option>
+      <option value="fr">fr（Français）</option>
     </select>
 
     <label>宮位系統 house_system</label>
-    <select id="house_system">
-      <option value="placidus">placidus (Placidus)</option>
-      <option value="whole">whole (Whole Sign)</option>
+    <select id="house">
+      <option value="placidus" selected>placidus（Placidus）</option>
+      <option value="whole_sign">whole_sign</option>
+      <option value="koch">koch</option>
+      <option value="equal">equal</option>
     </select>
 
-    <label>出生時間（24h HH:MM）</label>
-    <input id="time" value="20:50" />
+    <label>地名關鍵字（先查經緯度）</label>
+    <div class="row">
+      <input id="place" placeholder="tainan, taiwan" />
+      <button id="btnGeo" class="btn-ghost">查經緯度</button>
+    </div>
 
-    <label>時區（例：8 代表 Asia/Taipei）</label>
-    <input id="tzone" value="8" />
+    <div class="row">
+      <div>
+        <label>緯度 latitude（度）</label>
+        <input id="lat" value="22.9912348" />
+      </div>
+      <div>
+        <label>經度 longitude（度）</label>
+        <input id="lon" value="120.184982" />
+      </div>
+    </div>
 
-    <label>緯度 latitude（度）</label>
-    <input id="lat" value="22.9912348" />
+    <div class="row" style="margin-top:16px;">
+      <button id="btnGo" class="btn-primary">產生星盤圖（行星→輪盤，一鍵）</button>
+      <button id="btnClear" class="btn-ghost">清空輸入</button>
+    </div>
 
-    <label>經度 longitude（度）</label>
-    <input id="lon" value="120.184982" />
-
-    <br />
-    <button id="go">產生星盤圖（行星→輪盤，一鍵）</button>
-    <br /><br />
-    <button id="clear">清空輸入</button>
-
-    <h3>診斷訊息</h3>
-    <pre id="log"></pre>
+    <div id="log" class="log"></div>
   </div>
 
-  <script>
-    const log = (msg) => {
-      const el = document.getElementById('log');
-      el.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + '\n';
-      el.scrollTop = el.scrollHeight;
-    };
+<script>
+const $ = (id) => document.getElementById(id);
+const log = (msg, cls='') => {
+  const el = $('log');
+  const line = cls ? `<span class="${cls}">${msg}</span>` : msg;
+  el.innerHTML = (el.innerHTML ? el.innerHTML + '\n' : '') + line;
+};
 
-    // 時間格式解析
-    function parseHM(hhmm) {
-      const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm || '').trim());
-      if (!m) return null;
-      const hour = Number(m[1]), min = Number(m[2]);
-      if (hour < 0 || hour > 23 || min < 0 || min > 59) return null;
-      return { hour, min };
+const toInt = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+$('btnGeo').addEventListener('click', async () => {
+  $('log').innerHTML = '';
+  log(`[${new Date().toLocaleTimeString()}] 查詢地理…`);
+  const q = $('place').value.trim();
+  if (!q) { log('請輸入地名關鍵字', 'err'); return; }
+
+  try {
+    const res = await fetch('/.netlify/functions/freeastro-geo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ q })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      log(`地理查詢失敗：${data.message || res.status}`, 'err');
+      return;
     }
+    const { lat, lon, display_name } = data;
+    $('lat').value = String(lat);
+    $('lon').value = String(lon);
+    log(`地理OK: ${display_name}`, 'ok');
+  } catch (e) {
+    log(`地理查詢例外：${e.message}`, 'err');
+  }
+});
 
-    document.getElementById('go').addEventListener('click', async () => {
-      document.getElementById('log').textContent = '';
+$('btnGo').addEventListener('click', async () => {
+  $('log').innerHTML = '';
+  log(`[${new Date().toLocaleTimeString()}] 呼叫 Planets…`);
 
-      try {
-        const name = document.getElementById('name').value.trim();
-        const place = document.getElementById('place').value.trim();
-        const tzone = Number(document.getElementById('tzone').value);
-        const { hour, min } = parseHM(document.getElementById('time').value) || {};
+  // 解析時間
+  const time = $('time').value.trim(); // "HH:MM"
+  const [hh, mm] = time.split(':').map((s)=>Number(s));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
+    log('時間格式請用 HH:MM（24h）', 'err'); return;
+  }
 
-        if (hour === undefined) return log('時間格式錯誤，請用 HH:MM');
-        if (Number.isNaN(tzone)) return log('時區需為數字');
+  // 這裡用今天的年月日當範例，你可以改成讓使用者輸入日期
+  const now = new Date();
+  const year  = now.getFullYear();
+  const month = now.getMonth() + 1;    // 1-12
+  const date  = now.getDate();
 
-        const lat = Number(document.getElementById('lat').value);
-        const lon = Number(document.getElementById('lon').value);
-        if (Number.isNaN(lat) || Number.isNaN(lon)) return log('請先查好地理，讓經緯度填入');
+  const payload = {
+    name: $('name').value.trim() || undefined,
+    lang: $('lang').value,
+    house_system: $('house').value,
 
-        const now = new Date();
-        const payload = {
-          name: name || 'Guest',
-          lang: document.getElementById('lang').value,
-          house_system: document.getElementById('house_system').value,
-          year: now.getFullYear(),
-          month: now.getMonth() + 1,
-          day: now.getDate(),
-          hour,
-          min,
-          lat,
-          lon,
-          tzone
-        };
+    // ———官方必填———
+    year,
+    month,
+    date,               // ⚠️ 是 date 不是 day
+    hour: toInt(hh),
+    min:  toInt(mm),    // ⚠️ 是 min 不是 minute
+    lat:  Number($('lat').value),
+    lon:  Number($('lon').value),
+    tzone:Number($('tzone').value),
+  };
 
-        console.log('Sending payload:', payload);
-        log(`[${new Date().toLocaleTimeString()}] 呼叫 Planets…`);
+  // 清掉 undefined
+  Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
 
-        const res = await fetch('/.netlify/functions/freeastro-planets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+  console.log('[front] sending payload:', payload);
+  log('Sending payload（也寫在 console）');
 
-        const text = await res.text();
-        if (!res.ok) {
-          log(`❌ HTTP ${res.status} — ${text}`);
-        } else {
-          try { log(JSON.parse(text)); } catch { log(text); }
-        }
-      } catch (e) {
-        log(e?.message || String(e));
-      }
+  try {
+    const res = await fetch('/.netlify/functions/freeastro-planets', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify(payload),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      log(`HTTP ${res.status} — ${JSON.stringify(data)}`, 'err');
+      return;
+    }
+    log('成功取得行星資料，略。', 'ok');
+    // 你可以在這裡接續呼叫 houses / wheel 等…
+  } catch (e) {
+    log(`例外：${e.message}`, 'err');
+  }
+});
 
-    document.getElementById('clear').addEventListener('click', () => {
-      document.getElementById('log').textContent = '';
-    });
-  </script>
+$('btnClear').addEventListener('click', () => {
+  $('name').value = '';
+  $('place').value = '';
+  $('log').innerHTML = '';
+});
+</script>
 </body>
 </html>
