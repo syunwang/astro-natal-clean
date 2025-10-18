@@ -1,133 +1,68 @@
 // netlify/functions/freeastro-planets.js
-// ✅ 已補上 name 欄位傳遞，並保持 header 授權。
-
-const isTruthy = (v) => String(v ?? '').toLowerCase() === 'true';
+// ✅ Node 18 環境（使用原生 fetch）
+// ✅ 採用 Header 認證：x-api-key
+// ✅ 僅轉送 planets 所需 8 個欄位
 
 exports.handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Method Not Allowed' }),
-    };
-  }
-
-  const DEBUG = isTruthy(process.env.FREEASTRO_DEBUG);
-  const BASE = process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com';
-  const PATH = process.env.FREEASTRO_URL_PLANETS || '/western/planets';
-  const API_KEY = process.env.FREEASTRO_API_KEY || '';
-
-  if (!API_KEY) {
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Missing FREEASTRO_API_KEY in environment variables.' }),
-    };
-  }
-
-  let input;
   try {
-    input = JSON.parse(event.body || '{}');
-  } catch (e) {
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Invalid JSON in request body' }),
+    if (event.httpMethod !== 'POST') {
+      return { statusCode: 405, body: JSON.stringify({ message: 'Method Not Allowed' }) };
+    }
+
+    const BASE  = process.env.FREEASTRO_BASE;          // 例： https://json.freeastrologyapi.com/western
+    const PATH  = process.env.FREEASTRO_URL_PLANETS || '/planets';
+    const API_KEY = process.env.FREEASTRO_API_KEY;
+
+    if (!BASE || !API_KEY) {
+      return { statusCode: 500, body: JSON.stringify({ message: 'Missing FREEASTRO_BASE or FREEASTRO_API_KEY' }) };
+    }
+
+    // 解析前端傳入的 JSON
+    let incoming;
+    try {
+      incoming = JSON.parse(event.body || '{}');
+    } catch {
+      return { statusCode: 400, body: JSON.stringify({ message: 'Invalid JSON' }) };
+    }
+
+    // 只擷取 planets 允許的 8 個鍵（避免多送被判 400）
+    const body = {
+      year:  Number(incoming.year),
+      month: Number(incoming.month),
+      day:   Number(incoming.day),
+      hour:  Number(incoming.hour),
+      min:   Number(incoming.min),
+      lat:   Number(incoming.lat),
+      lon:   Number(incoming.lon),
+      tzone: Number(incoming.tzone),
     };
-  }
 
-  const {
-    year,
-    month,
-    day,
-    hour,
-    minute,
-    min,
-    lat,
-    lon,
-    tzone,
-    house_system,
-    lang,
-    name, // ✅ 新增
-  } = input;
+    // 基本欄位檢查
+    for (const k of ['year','month','day','hour','min','lat','lon','tzone']) {
+      if (!Number.isFinite(body[k])) {
+        return { statusCode: 400, body: JSON.stringify({ message: `Invalid or missing field: ${k}` }) };
+      }
+    }
 
-  const missing = [];
-  if (typeof year !== 'number') missing.push('year');
-  if (typeof month !== 'number') missing.push('month');
-  if (typeof day !== 'number') missing.push('day');
-  if (typeof hour !== 'number') missing.push('hour');
-  const apiMin = typeof min === 'number' ? min : (typeof minute === 'number' ? minute : undefined);
-  if (typeof apiMin !== 'number') missing.push('min');
-  if (typeof lat !== 'number') missing.push('lat');
-  if (typeof lon !== 'number') missing.push('lon');
-  if (typeof tzone !== 'number') missing.push('tzone');
+    const url = `${BASE.replace(/\/$/, '')}${PATH}`;
 
-  if (missing.length) {
-    return {
-      statusCode: 400,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: 'Missing or invalid fields',
-        missing,
-        hint: 'Payload must include date {year,month,day,hour,min} and lat, lon, tzone.',
-      }),
-    };
-  }
-
-  // ✅ 組成最終傳給 FreeAstrology API 的 payload
-  const payload = {
-    date: { year, month, day, hour, min: apiMin },
-    lat,
-    lon,
-    tzone,
-  };
-
-  if (house_system) payload.house_system = String(house_system);
-  if (lang) payload.lang = String(lang);
-  if (name) payload.name = String(name); // ✅ 加上 name
-
-  const url = `${BASE}${PATH}`;
-
-  if (DEBUG) {
-    console.log('[Planets] URL =>', url);
-    console.log('[Planets] Payload =>', JSON.stringify(payload, null, 2));
-  }
-
-  try {
     const resp = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': API_KEY,
+        'x-api-key': API_KEY,        // ★ Header 認證
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
 
     const text = await resp.text();
-    const json = (() => {
-      try {
-        return JSON.parse(text);
-      } catch {
-        return { raw: text };
-      }
-    })();
-
-    if (DEBUG) {
-      console.log('[Planets] Status:', resp.status);
-      console.log('[Planets] Response:', json);
+    if (!resp.ok) {
+      // 把上游錯誤字串原樣回傳，方便你在前端看到
+      return { statusCode: resp.status, body: text || JSON.stringify({ message: 'Upstream error' }) };
     }
 
-    return {
-      statusCode: resp.status,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(json),
-    };
+    return { statusCode: 200, body: text };
   } catch (err) {
-    console.error('[Planets] Exception:', err);
-    return {
-      statusCode: 500,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: 'Upstream fetch failed', error: String(err) }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ message: err.message }) };
   }
 };

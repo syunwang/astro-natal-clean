@@ -1,124 +1,56 @@
-// index.js
-const $ = (s) => document.querySelector(s);
-const logBox = $("#log");
-const log = (msg) => {
-  logBox.textContent += `\n${msg}`;
-  logBox.scrollTop = logBox.scrollHeight;
-};
-const set = (id, v) => { $(id).value = v; };
-const num = (id) => Number($(id).value);
+// === 只給 planets 端點用的 payload（嚴格 8 個鍵）===
+function buildPlanetsPayload() {
+  // 這裡照你頁面上的 input/select id 取值
+  const [y, m, d] = document.querySelector('#birth_date').value.split('-').map(Number);
+  const [hh, mm]  = document.querySelector('#birth_time').value.split(':').map(Number);
 
-const LOCKS = { lat: true, lon: true };
-$("#unlockLat").onclick = () => {
-  LOCKS.lat = !LOCKS.lat;
-  $("#latitude").readOnly = LOCKS.lat;
-  $("#unlockLat").textContent = LOCKS.lat ? "解鎖" : "上鎖";
-};
-$("#unlockLon").onclick = () => {
-  LOCKS.lon = !LOCKS.lon;
-  $("#longitude").readOnly = LOCKS.lon;
-  $("#unlockLon").textContent = LOCKS.lon ? "解鎖" : "上鎖";
-};
+  const lat  = Number(document.querySelector('#lat').value);
+  const lon  = Number(document.querySelector('#lon').value);
+  const tz   = Number(document.querySelector('#tzone').value);
 
-// 依地名查經緯度
-async function fetchGeo() {
-  const q = $("#location").value.trim();
-  if (!q) return log("⚠️ 請先輸入地名關鍵字");
-  log(`🔎 查詢地理… ${q}`);
-  try {
-    const res = await fetch("/.netlify/functions/freeastro-geo", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      log(`❌ 地理查詢失敗：${res.status} ${JSON.stringify(data)}`);
-      return;
-    }
-    // 期待回傳 { lat, lon, display_name }
-    if (data?.lat != null && data?.lon != null) {
-      set("#latitude", data.lat);
-      set("#longitude", data.lon);
-      log(`✅ 地理OK：${data.display_name || ""}`);
-    } else {
-      log(`⚠️ 地理查詢失敗：${JSON.stringify(data)}`);
-    }
-  } catch (e) {
-    log(`🚨 地理查詢例外：${e.message}`);
-  }
-}
-$("#btnGeo").onclick = fetchGeo;
-$("#location").addEventListener("blur", () => {
-  // 失焦自動查；你不想自動可註解
-  if (!$("#latitude").value || !$("#longitude").value) fetchGeo();
-});
-
-// 組 payload（符合後端 freeastro-planets.js）
-function buildPayload() {
-  const birthdate = $("#birthdate").value; // yyyy-mm-dd
-  const birthtime = $("#birthtime").value; // HH:MM
-
-  const [year, month, day] = (birthdate || "").split("-").map((x) => Number(x));
-  const [hour, min] = (birthtime || "").split(":").map((x) => Number(x));
-
+  // ★ planets 僅允許這 8 個鍵，千萬不要加其它鍵（name / house_system / lang 等）
   return {
-    name: $("#name").value.trim() || "",
-    year, month, day, hour, min,
-    lat: num("#latitude"),
-    lon: num("#longitude"),
-    tzone: num("#tzone"),
-    house_system: $("#house_system").value,
-    lang: $("#lang").value,
+    year: y,
+    month: m,
+    day: d,
+    hour: hh,
+    min: mm,
+    lat,
+    lon,
+    tzone: tz
   };
 }
 
-function validatePayload(p) {
-  const missing = [];
-  for (const k of ["year", "month", "day", "hour", "min", "lat", "lon", "tzone"]) {
-    if (p[k] == null || Number.isNaN(p[k])) missing.push(k);
-  }
-  if (missing.length) {
-    log(`⚠️ 缺少或格式錯誤欄位：${missing.join(", ")}`);
-    return false;
-  }
-  return true;
-}
+async function callPlanets() {
+  const payload = buildPlanetsPayload();
+  console.log('Sending payload:', payload); // 送出前寫到 console，方便比對
 
-// 送 planets
-$("#generate").onclick = async () => {
-  logBox.textContent = "";
-  const payload = buildPayload();
-  log("📦 送出前 payload（也寫在 console）");
-  console.log("payload", payload);
-  log(JSON.stringify(payload, null, 2));
+  const res = await fetch('/.netlify/functions/freeastro-planets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-  if (!validatePayload(payload)) {
-    log("❌ 請先補齊必要欄位（包含日期、時間與經緯度）。");
+  const txt = await res.text();
+  if (!res.ok) {
+    addDiag(`❌ HTTP ${res.status} – ${txt}`);
     return;
   }
+  const data = JSON.parse(txt);
+  addDiag('✅ planets OK');
+  // TODO: 在這裡把結果畫到畫面上
+}
 
-  try {
-    const res = await fetch("/.netlify/functions/freeastro-planets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      log("✅ 呼叫成功");
-      log(JSON.stringify(data, null, 2));
-    } else {
-      log(`❌ HTTP ${res.status} – ${JSON.stringify(data)}`);
-    }
-  } catch (e) {
-    log(`🚨 發生例外：${e.message}`);
-  }
-};
+// 你的產生星盤按鈕
+document.querySelector('#btn-go').addEventListener('click', (e) => {
+  e.preventDefault();
+  callPlanets().catch(err => addDiag(`❌ ${err.message}`));
+});
 
-// 清空
-$("#clear").onclick = () => {
-  ["#name","#tzone","#location","#latitude","#longitude","#birthdate","#birthtime"].forEach((id)=> set(id,""));
-  $("#tzone").value = 8;
-  logBox.textContent = "已清空。請輸入地名後按「查經緯度」。";
-};
+// 小工具：把訊息寫到診斷區域
+function addDiag(msg) {
+  const box = document.querySelector('#diag');
+  const p = document.createElement('div');
+  p.textContent = msg;
+  box.appendChild(p);
+}
