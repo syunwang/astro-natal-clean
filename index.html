@@ -1,4 +1,3 @@
-<!-- index.html （FINAL：送 planets 時用 min，不是 minute） -->
 <!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -6,9 +5,11 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Astro Natal Chart Generator</title>
   <style>
-    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";background:#0b0c10;color:#e6e6e6;margin:0;padding:24px}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans","Helvetica Neue",Arial,"Apple Color Emoji","Segoe UI Emoji";
+      background:#0b0c10;color:#e6e6e6;margin:0;padding:24px}
     label{display:block;margin:14px 0 6px}
-    input,select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #2c2f33;background:#12141a;color:#e6e6e6}
+    input,select,button{width:100%;padding:12px;border-radius:10px;border:1px solid #2c2f33;
+      background:#12141a;color:#e6e6e6}
     button{background:#6b63ff;border:0;font-weight:700;cursor:pointer}
     pre{background:#0f1115;border:1px solid #222;border-radius:10px;padding:12px;white-space:pre-wrap}
     .row{max-width:820px;margin:0 auto}
@@ -18,7 +19,10 @@
   <div class="row">
     <h1>🪐 Astro Natal Chart Generator</h1>
 
-    <label>地名（僅需輸入，經緯度系統自動帶出）</label>
+    <label>姓名 / Name</label>
+    <input id="name" placeholder="請輸入姓名或標題 (e.g. Sophia Wang)" />
+
+    <label>地名（例：tainan, taiwan）</label>
     <input id="place" placeholder="tainan, taiwan" />
 
     <label>語言 lang</label>
@@ -61,7 +65,7 @@
       el.scrollTop = el.scrollHeight;
     };
 
-    // 解析 HH:MM
+    // 時間格式解析
     function parseHM(hhmm) {
       const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm || '').trim());
       if (!m) return null;
@@ -74,6 +78,7 @@
       document.getElementById('log').textContent = '';
 
       try {
+        const name = document.getElementById('name').value.trim();
         const place = document.getElementById('place').value.trim();
         const tzone = Number(document.getElementById('tzone').value);
         const { hour, min } = parseHM(document.getElementById('time').value) || {};
@@ -81,27 +86,28 @@
         if (hour === undefined) return log('時間格式錯誤，請用 HH:MM');
         if (Number.isNaN(tzone)) return log('時區需為數字');
 
-        // 這裡假設你已有「查地理」按鈕流程，會把 lat/lon 填好
         const lat = Number(document.getElementById('lat').value);
         const lon = Number(document.getElementById('lon').value);
         if (Number.isNaN(lat) || Number.isNaN(lon)) return log('請先查好地理，讓經緯度填入');
 
         const now = new Date();
         const payload = {
-          name: place || 'test',
+          name: name || 'Guest',
           lang: document.getElementById('lang').value,
           house_system: document.getElementById('house_system').value,
-          year: now.getFullYear(),             // 你也可以改成用表單輸入
+          year: now.getFullYear(),
           month: now.getMonth() + 1,
           day: now.getDate(),
           hour,
-          min,                                 // ← 這裡是 min（很重要）
+          min,
           lat,
           lon,
           tzone
         };
 
+        console.log('Sending payload:', payload);
         log(`[${new Date().toLocaleTimeString()}] 呼叫 Planets…`);
+
         const res = await fetch('/.netlify/functions/freeastro-planets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
