@@ -1,134 +1,84 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, viewport-fit=cover"
-/>
-  <title>Astro Natal Chart Generator</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>產生星盤圖（行星→輪盤，一鍵）</title>
   <style>
-    :root {
-      --bg: #0f1115;
-      --card: #171923;
-      --ink: #e9ecf1;
-      --muted: #9aa4b2;
-      --primary: #7266f0;
-      --primary-ink: #ffffff;
-      --danger: #ff6b6b;
-      --ok: #7dd97a;
-      --input: #1e2230;
-      --input-border: #2b3242;
+    body {
+      background-color: #111;
+      color: #eee;
+      font-family: "Segoe UI", sans-serif;
+      margin: 2em;
     }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans TC", "Microsoft JhengHei", Arial, sans-serif; }
-    .wrap { max-width: 980px; margin: 24px auto 64px; padding: 0 20px; }
-    h1 { font-size: 28px; font-weight: 700; margin: 8px 0 20px; letter-spacing: 0.5px; }
-    .grid { display: grid; gap: 14px; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .card { background: var(--card); border: 1px solid #22283a; border-radius: 14px; padding: 16px; }
-    label { display: block; font-size: 13px; color: var(--muted); margin: 0 0 6px; }
-    input, select, button, textarea {
-      width: 100%; border-radius: 12px; border: 1px solid var(--input-border);
-      background: var(--input); color: var(--ink); padding: 12px 14px; outline: none;
+    input, select, button {
+      display: block;
+      margin: 0.5em 0;
+      padding: 0.5em;
+      font-size: 1em;
+      border-radius: 6px;
+      border: none;
     }
-    input:focus, select:focus, textarea:focus { border-color: #3b4866; }
-    .btn {
-      cursor: pointer; border: 1px solid transparent; transition: 0.15s transform ease, 0.15s opacity ease;
-      background: var(--primary); color: var(--primary-ink); font-weight: 600;
+    button {
+      background-color: #7b5cff;
+      color: white;
+      cursor: pointer;
     }
-    .btn:hover { transform: translateY(-1px); }
-    .btn.secondary { background: #242a3a; color: var(--ink); border-color: #333a4e; }
-    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .diag { white-space: pre-wrap; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace; background: #111420; border: 1px solid #21263a; color: #d9def7; padding: 14px; border-radius: 14px; min-height: 120px; }
-    .muted { color: var(--muted); }
-    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #242a3a; color: var(--muted); font-size: 12px; margin-left: 8px; }
+    button:hover {
+      opacity: 0.9;
+    }
+    pre {
+      background-color: #222;
+      padding: 1em;
+      border-radius: 6px;
+      overflow-x: auto;
+      color: #9ef;
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>🪐 Astro Natal Chart Generator <span class="pill">本地開發</span></h1>
+  <h2>產生星盤圖（行星→輪盤，一鍵）</h2>
 
-    <div class="grid">
-      <!-- 位置查詢（放最上面） -->
-      <div class="card">
-        <label for="place">地名關鍵字（先查經緯度）</label>
-        <div class="row">
-          <input id="place" placeholder="例如：tainan, taiwan" />
-          <button id="btnGeo" class="btn">查經緯度</button>
-        </div>
-        <p class="muted" style="margin:8px 0 0">會呼叫 <code>/.netlify/functions/freeastro-geo</code> → 自動填入下方經緯度</p>
-      </div>
+  <label>姓名（可選）</label>
+  <input id="name" type="text" placeholder="輸入姓名 (例：Sophia)" />
 
-      <!-- 基本資料 -->
-      <div class="row">
-        <div class="card">
-          <label for="lang">語言 lang（必填）</label>
-          <select id="lang">
-            <option value="en">en（English）</option>
-            <option value="zh" selected>zh（中文）</option>
-          </select>
-        </div>
-        <div class="card">
-          <label for="house_system">宮位系統 house_system（必填）</label>
-          <select id="house_system">
-            <option value="placidus" selected>placidus（Placidus）</option>
-            <option value="whole-sign">whole-sign</option>
-            <option value="koch">koch</option>
-          </select>
-        </div>
-      </div>
+  <label>出生日期 (YYYY-MM-DD)</label>
+  <input id="birthdate" type="text" placeholder="1990-01-01" />
 
-      <!-- 出生日期與時間 -->
-      <div class="row">
-        <div class="card">
-          <label>出生時間（24h HH:MM）</label>
-          <input id="time" placeholder="例如：20:50" value="20:50" />
-        </div>
-        <div class="card">
-          <label>時區（例如：8 代表 Asia/Taipei）</label>
-          <input id="tzone" placeholder="範例：8" value="8" />
-        </div>
-      </div>
+  <label>出生時間 (HH:MM)</label>
+  <input id="birthtime" type="text" placeholder="20:50" />
 
-      <div class="row">
-        <div class="card">
-          <label>出生日期（YYYY-MM-DD）</label>
-          <input id="date" placeholder="例如：1990-01-01" value="1990-01-01" />
-        </div>
-        <div class="card">
-          <label>（選填）姓名</label>
-          <input id="name" placeholder="可留白" />
-        </div>
-      </div>
+  <label>時區 (例：8 表 Asia/Taipei)</label>
+  <input id="tzone" type="number" value="8" />
 
-      <!-- 經緯度 -->
-      <div class="row">
-        <div class="card">
-          <label for="lat">緯度 latitude（度）</label>
-          <input id="lat" placeholder="22.9912348" />
-        </div>
-        <div class="card">
-          <label for="lon">經度 longitude（度）</label>
-          <input id="lon" placeholder="120.184982" />
-        </div>
-      </div>
+  <label>地名關鍵字</label>
+  <input id="location" type="text" placeholder="tainan, taiwan" />
 
-      <!-- 動作 -->
-      <div class="actions">
-        <button id="btnRun" class="btn">產生星盤圖（行星→輪盤，一鍵）</button>
-        <button id="btnClear" class="btn secondary">清空輸入</button>
-      </div>
+  <label>緯度 latitude（度）</label>
+  <input id="latitude" type="number" step="0.000001" />
 
-      <!-- 診斷訊息 -->
-      <div class="card">
-        <label>診斷訊息</label>
-        <div id="diag" class="diag">等待動作…</div>
-      </div>
-    </div>
-  </div>
+  <label>經度 longitude（度）</label>
+  <input id="longitude" type="number" step="0.000001" />
 
-  <!-- 前端邏輯 -->
-  <script src="./index.js"></script>
+  <label>宮位系統 house_system</label>
+  <select id="house_system">
+    <option value="placidus" selected>placidus（普拉西杜斯）</option>
+    <option value="koch">koch（柯赫）</option>
+    <option value="whole">whole（整宮）</option>
+  </select>
+
+  <label>語言 lang</label>
+  <select id="lang">
+    <option value="en">en (English)</option>
+    <option value="zh" selected>zh (中文)</option>
+  </select>
+
+  <button id="generate">產生星盤圖（行星→輪盤，一鍵）</button>
+  <button id="clear">清空輸入</button>
+
+  <h3>診斷訊息</h3>
+  <pre id="log"></pre>
+
+  <script src="index.js"></script>
 </body>
 </html>
