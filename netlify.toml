@@ -1,13 +1,12 @@
-[functions]
-  node_bundler = "esbuild"
-  
-  [functions.node_version]
-    runtime = "nodejs18.x"
+# netlify.toml  —— 純靜態網站 + Netlify Functions
 
 [build]
-  command = "npm run build"
-  publish = "."
+  command = ""        # 不跑任何 build
+  publish = "."       # index.html 在專案根目錄
 
-[dev]
-  port = 8888
-  functionsPort = 5050
+[build.environment]
+  NODE_VERSION = "18"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
