@@ -1,99 +1,109 @@
 // netlify/functions/freeastro-planets.js
-// Node 18 原生 fetch 版本
-// 依官方文件：POST https://json.freeastrologyapi.com/western/planets
-// Header: Content-Type: application/json, x-api-key: <YOUR_KEY>
+// Node 18 原生 fetch
+// 兩段式：先扁平 schema（A），若 400/Invalid request body 再試巢狀 schema（B）
+// Header: x-api-key + Content-Type: application/json
 
 export const handler = async (event) => {
-  // 僅允許 POST
-  if (event.httpMethod !== 'POST') {
-    return resp(405, { message: 'Method Not Allowed' });
-  }
+  if (event.httpMethod !== 'POST') return respond(405, { message: 'Method Not Allowed' });
 
-  // 解析 body（確保一定是 JSON）
   let payload;
   try {
     payload = typeof event.body === 'string' ? JSON.parse(event.body || '{}') : (event.body || {});
-  } catch (e) {
-    return resp(400, { message: 'Invalid JSON body' });
+  } catch {
+    return respond(400, { message: 'Invalid JSON body' });
   }
 
-  // 取環境變數（你已在 Netlify 設好）
   const API_KEY = process.env.FREEASTRO_API_KEY || '';
   const BASE    = process.env.FREEASTRO_BASE || 'https://json.freeastrologyapi.com';
   const PATH    = process.env.FREEASTRO_URL_PLANETS || '/western/planets';
   const AUTH    = (process.env.FREEASTRO_AUTH_STYLE || 'header').toLowerCase();
 
-  if (!API_KEY) return resp(500, { error: 'Missing FREEASTRO_API_KEY in environment variables.' });
+  if (!API_KEY) return respond(500, { error: 'Missing FREEASTRO_API_KEY' });
 
-  // 1) 先把使用者送來的值做「最小格式化」——官方需要純數字/字串
-  //    （避免前端某些欄位被當成字串、或空白）
-  const cleanNumber = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v))) ? undefined : Number(v);
+  const url = `${BASE.replace(/\/+$/, '')}${PATH.startsWith('/') ? '' : '/'}${PATH}`;
 
-  const body = {
-    year:  cleanNumber(payload.year),
-    month: cleanNumber(payload.month),
-    day:   cleanNumber(payload.day),
-    hour:  cleanNumber(payload.hour),
-    min:   cleanNumber(payload.min),
-    lat:   cleanNumber(payload.lat),
-    lon:   cleanNumber(payload.lon),
-    tzone: cleanNumber(payload.tzone),
-    house_system: (payload.house_system || '').toString().trim() || 'placidus',
+  // -------- Schema A：扁平 + number --------
+  const toNum = (v) => (v === '' || v === null || v === undefined || Number.isNaN(Number(v))) ? undefined : Number(v);
+
+  const bodyA = {
+    year:  toNum(payload.year),
+    month: toNum(payload.month),
+    day:   toNum(payload.day),
+    hour:  toNum(payload.hour),
+    min:   toNum(payload.min),
+    lat:   toNum(payload.lat),
+    lon:   toNum(payload.lon),
+    tzone: toNum(payload.tzone),
+    house_system: (payload.house_system || 'placidus').toString().trim(),
     lang: (payload.lang || 'en').toString().trim()
   };
 
-  // 2) 檢查必填欄位（照官方 planets 規格）
-  const missing = Object.entries({
-    year: body.year, month: body.month, day: body.day,
-    hour: body.hour, min: body.min, lat: body.lat, lon: body.lon,
-    tzone: body.tzone, house_system: body.house_system
-  }).filter(([k,v]) => v === undefined).map(([k]) => k);
+  const missingA = Object.entries({
+    year: bodyA.year, month: bodyA.month, day: bodyA.day,
+    hour: bodyA.hour, min: bodyA.min, lat: bodyA.lat, lon: bodyA.lon,
+    tzone: bodyA.tzone, house_system: bodyA.house_system
+  }).filter(([,v]) => v === undefined);
 
-  if (missing.length) {
-    return resp(400, { message: 'Missing required fields', missing });
+  if (missingA.length) {
+    return respond(400, { message: 'Missing required fields', missing: missingA.map(([k])=>k) });
   }
 
-  // 3) 建 URL（保證單一斜線）
-  const url = `${BASE.replace(/\/+$/, '')}${PATH.startsWith('/') ? '' : '/'}${PATH}`;
+  const headers = { 'Content-Type': 'application/json' };
+  if (AUTH === 'header') headers['x-api-key'] = API_KEY;
 
-  // 4) 組 Header（官方是 x-api-key）
-  const headers = {
-    'Content-Type': 'application/json'
-  };
-  if (AUTH === 'header') {
-    headers['x-api-key'] = API_KEY;
-  }
+  // --- 送 Schema A ---
+  let resA = await safePost(url, headers, bodyA);
+  // 將請求與回應（已移除金鑰）一起回傳給前端方便排錯
+  if (!resA.ok && isInvalidBody(resA)) {
+    // -------- Schema B：巢狀 + string --------
+    const bodyB = {
+      date: { year: String(bodyA.year), month: String(bodyA.month), day: String(bodyA.day) },
+      time: { hour: String(bodyA.hour), minute: String(bodyA.min) },
+      location: { latitude: String(bodyA.lat), longitude: String(bodyA.lon), timezone: String(bodyA.tzone) },
+      house_system: bodyA.house_system,
+      lang: bodyA.lang
+    };
 
-  // 5) 送出
-  let upstream;
-  try {
-    upstream = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
+    let resB = await safePost(url, headers, bodyB);
+    return respond(resB.status, {
+      tried: 'A-then-B',
+      requestA: { url, headers: scrubHeaders(headers), body: bodyA },
+      responseA: resA.bodyJSON ?? resA.bodyText,
+      requestB: { url, headers: scrubHeaders(headers), body: bodyB },
+      responseB: resB.bodyJSON ?? resB.bodyText
     });
-  } catch (err) {
-    return resp(502, { error: 'Upstream fetch error', detail: String(err) });
   }
 
-  const text = await upstream.text();
-  // 嘗試解析回傳 JSON（API 出錯時也常是 JSON）
-  let data;
-  try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-  // 直接把上游狀態與內容回傳給前端（便於你在 console 看到真正錯誤）
-  return {
-    statusCode: upstream.status,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  };
+  // A 成功或不是 Invalid request body 的錯誤
+  return respond(resA.status, {
+    tried: 'A-only',
+    requestA: { url, headers: scrubHeaders(headers), body: bodyA },
+    responseA: resA.bodyJSON ?? resA.bodyText
+  });
 };
 
-// 小工具：回應 helper
-function resp(code, obj) {
-  return {
-    statusCode: code,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(obj)
-  };
+// 工具：統一送 POST 並抓回傳
+async function safePost(url, headers, body) {
+  try {
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    const txt = await r.text();
+    let js; try { js = JSON.parse(txt); } catch {}
+    return { ok: r.ok, status: r.status, bodyText: txt, bodyJSON: js };
+  } catch (e) {
+    return { ok: false, status: 502, bodyText: String(e) };
+  }
+}
+
+function scrubHeaders(h) {
+  const out = { ...h };
+  if (out['x-api-key']) out['x-api-key'] = '***';
+  return out;
+}
+function isInvalidBody(res) {
+  const t = (res.bodyText || '').toLowerCase();
+  const j = (res.bodyJSON && JSON.stringify(res.bodyJSON).toLowerCase()) || '';
+  return (t.includes('invalid request body') || j.includes('invalid request body')) && res.status === 400;
+}
+function respond(code, obj) {
+  return { statusCode: code, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) };
 }
