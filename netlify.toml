@@ -1,12 +1,10 @@
-# netlify.toml  —— 純靜態網站 + Netlify Functions
-
 [build]
-  command = ""        # 不跑任何 build
-  publish = "."       # index.html 在專案根目錄
-
-[build.environment]
-  NODE_VERSION = "18"
+  command = ""
+  publish = "."
 
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+
+[build.environment]
+  NODE_VERSION = "18"
